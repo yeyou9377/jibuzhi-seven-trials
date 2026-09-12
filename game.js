@@ -8,7 +8,7 @@ const DIR_LABEL = { up: "北", down: "南", left: "西", right: "东", stay: "�
 const state = {
   map: [], player: { r: 7, c: 1 }, companion: { r: 1, c: 7 },
   playerTrail: new Set(), companionTrail: new Set(), round: 1,
-  eye: "silver", selectedMove: null, previousDistance: null,
+  eye: "silver", previousDistance: null,
   shadowSeen: false, ended: false, rng: mulberry32(Date.now() >>> 0),
 };
 
@@ -177,6 +177,16 @@ function templeEcho(message) {
   say(`石壁学着你的声音说：“${echo}”`, "temple");
 }
 
+function templeBeat(round) {
+  const beats = {
+    2: "石阶深处亮起一只金色的眼。它看向错误的方向。",
+    4: "墙缝里落下几颗决明子。每一颗，都发出与你脚步相反的回声。",
+    6: "庙门问：若看见会欺骗你，你还愿意把方向告诉另一个人吗？",
+    8: "银瞳缓慢合上。黑暗没有消失，但你开始分得清哪一次震动属于它。",
+  };
+  if (beats[round]) say(beats[round], "temple");
+}
+
 function pulseVibration() {
   const vibration = $("#vibration");
   const dr = Math.sign(state.companion.r - state.player.r);
@@ -198,13 +208,13 @@ function finish(success) {
   switchScreen("ending");
 }
 
-function commitTurn() {
-  if (!state.selectedMove || state.ended) return;
+function commitTurn(direction) {
+  if (!direction || state.ended) return;
   const message = $("#message").value.trim();
   const oldPlayer = { ...state.player }, oldCompanion = { ...state.companion };
   const oldDistance = distance(oldPlayer, oldCompanion);
   const companionMove = bestCompanionMove(message);
-  const nextPlayer = move(oldPlayer, state.selectedMove);
+  const nextPlayer = move(oldPlayer, direction);
   const nextCompanion = move(oldCompanion, companionMove);
   const wasAdjacent = oldDistance === 1;
   const bothApproached = distance(nextPlayer, oldCompanion) < oldDistance && distance(nextCompanion, oldPlayer) < oldDistance;
@@ -216,6 +226,7 @@ function commitTurn() {
   if (message) say(message, "you");
   templeEcho(message);
   say(companionReply(oldDistance, newDistance, companionMove));
+  templeBeat(state.round);
 
   if ((wasAdjacent && bothApproached) || newDistance === 0) { renderMap(); renderSense(); setTimeout(() => finish(true), 650); return; }
   state.shadowSeen = newDistance === 1;
@@ -223,15 +234,13 @@ function commitTurn() {
   pulseVibration();
   state.round += 1;
   if (state.round > MAX_ROUNDS) { setTimeout(() => finish(false), 500); return; }
-  state.selectedMove = null;
   $$("[data-move]").forEach((b) => b.classList.remove("selected"));
   $("#message").value = "";
-  $("#commit-turn").disabled = true;
   renderMap(); renderSense();
 }
 
 function startGame(eye) {
-  state.eye = eye; state.round = 1; state.ended = false; state.selectedMove = null;
+  state.eye = eye; state.round = 1; state.ended = false;
   state.player = { r: 7, c: 1 }; state.companion = { r: 1, c: 7 };
   state.playerTrail = new Set([key(state.player)]); state.companionTrail = new Set([key(state.companion)]);
   state.previousDistance = null; state.rng = mulberry32((Date.now() ^ (eye === "gold" ? 9173 : 421)) >>> 0);
@@ -245,12 +254,11 @@ function startGame(eye) {
 $("#enter-button").addEventListener("click", () => switchScreen("choice"));
 $$('[data-eye]').forEach((button) => button.addEventListener("click", () => startGame(button.dataset.eye)));
 $$('[data-move]').forEach((button) => button.addEventListener("click", () => {
-  state.selectedMove = button.dataset.move;
-  $$('[data-move]').forEach((b) => b.classList.toggle("selected", b === button));
-  $("#commit-turn").disabled = false;
+  button.classList.add("selected");
+  setTimeout(() => button.classList.remove("selected"), 180);
+  commitTurn(button.dataset.move);
 }));
 $$('[data-message]').forEach((button) => button.addEventListener("click", () => { $("#message").value = button.dataset.message; }));
-$("#commit-turn").addEventListener("click", commitTurn);
 $("#name-place").addEventListener("click", () => {
   const name = $("#place-name").value.trim() || "无名之处";
   const keepsake = $("#keepsake");
@@ -273,6 +281,5 @@ document.addEventListener("keydown", (event) => {
   const action = map[event.key];
   if (!action) return;
   event.preventDefault();
-  if (action === "commit") commitTurn();
-  else document.querySelector(`[data-move="${action}"]`).click();
+  if (action !== "commit") document.querySelector(`[data-move="${action}"]`).click();
 });
