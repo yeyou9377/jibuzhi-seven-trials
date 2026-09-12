@@ -57,26 +57,50 @@
         <header class="game-header">
           <div>
             <p class="eyebrow">一味 · 决明</p>
-            <h2>失明庭</h2>
+            <h2 id="scene-title">庙门之前</h2>
           </div>
           <div class="round-counter"><span id="round">1</span><small>/ 10 回合</small></div>
         </header>
 
         <div class="game-layout">
-          <section class="map-panel">
+          <section class="scene-panel">
+            <div class="scene-art" id="scene-art">
+              <img src="assets/juemingzi.png" alt="决明神庙中的银色石眼" />
+              <div class="scene-vignette"></div>
+              <div class="scene-eye" aria-hidden="true">◉</div>
+              <div class="location-mark"><span>当前位置</span><strong id="location-name">庙门</strong></div>
+            </div>
+
+            <div class="narrative-card" aria-live="polite">
+              <p class="narrative-kicker" id="scene-kicker">所见即路</p>
+              <div id="scene-copy" class="scene-copy">
+                <p>雨停了很久，石阶仍是湿的。你取下石眼走进门内，背后的天光随即被切断。</p>
+                <p>前方没有路标。只有黑暗深处的第二个呼吸，与你隔着整座神庙。</p>
+              </div>
+              <p id="temple-whisper" class="temple-whisper">神庙低声说：你看见的，就是路。</p>
+            </div>
+
+            <div class="story-actions">
+              <p>你要怎么做？</p>
+              <div class="controls" aria-label="情境行动">
+                <button data-move="up"><span>向北</span><small>沿湿石阶前行</small></button>
+                <button data-move="left"><span>向西</span><small>触摸刻痕墙面</small></button>
+                <button data-move="stay" class="stay"><span>停下</span><small>听一个回合</small></button>
+                <button data-move="right"><span>向东</span><small>循微光探路</small></button>
+                <button data-move="down"><span>向南</span><small>退回门边求证</small></button>
+              </div>
+              <p class="control-hint">也可使用方向键或 WASD。行动后，你与灵伴会同时移动。</p>
+            </div>
+          </section>
+
+          <section class="map-panel" aria-label="小地图">
+            <div class="map-heading"><span>神庙残图</span><small>只记录你走过的路</small></div>
             <div class="map-frame">
               <div id="vibration" class="vibration" aria-live="polite"></div>
               <div id="map" class="map" role="grid" aria-label="失明庭地图"></div>
               <div id="shadow-message" class="shadow-message">你看见一枚不属于自己的影子。</div>
             </div>
-            <div class="controls" aria-label="移动方向">
-              <button data-move="up" aria-label="向上">↑</button>
-              <button data-move="left" aria-label="向左">←</button>
-              <button data-move="stay" class="stay" aria-label="原地聆听">·</button>
-              <button data-move="right" aria-label="向右">→</button>
-              <button data-move="down" aria-label="向下">↓</button>
-            </div>
-            <p class="control-hint"><strong>玩法：</strong>先在右侧留一句话（可选），再点方向；点击后双方会立刻同时移动。方向键 / WASD 也可以走。</p>
+            <p class="tremor-legend"><i></i> 边缘震纹来自灵伴移动的大致方向</p>
           </section>
 
           <aside class="companion-panel">

@@ -5,6 +5,14 @@ const DIRS = {
 };
 const DIR_LABEL = { up: "北", down: "南", left: "西", right: "东", stay: "原地" };
 
+const STORY_BEATS = [
+  { title: "庙门之前", place: "庙门", kicker: "所见即路", text: ["雨停了很久，石阶仍是湿的。你取下石眼走进门内，背后的天光随即被切断。", "前方没有路标。只有黑暗深处的第二个呼吸，与你隔着整座神庙。"], whisper: "神庙低声说：你看见的，就是路。" },
+  { title: "无灯前殿", place: "前殿", kicker: "没有燃起的灯", text: ["无焰灯台、六只空碗和一面银镜浮在微光里。第五只碗中有一颗温热的种子。", "你碰到它时，远处也响起一声种子滚动。那不是你制造的回声。"], whisper: "神庙说：门在东边。镜子也这样说。" },
+  { title: "石眼回廊", place: "空碗侧回廊", kicker: "身后的眼睛", text: ["你每走一步，身后便有一只石眼睁开；一回头，它们又全部闭着。", "小地图边缘泛起震纹。你必须把自己看见的，变成另一个生命能用的证据。"], whisper: "神庙说：它已经告诉过你答案，何必再问？" },
+  { title: "石眼回廊", place: "回廊深处", kicker: "旧话从墙里回来", text: ["最远的一只石眼开始模仿灵伴。它复述得一字不差，却回答不了你刚提出的新问题。", "真声音与本回合的震动同时抵达；假声音总是晚一个过去。"], whisper: "神庙说：一模一样的声音，为什么不能是它？" },
+  { title: "银影之前", place: "回廊尽头", kicker: "还差共同的一步", text: ["回廊尽头浮出一道银色影子。它没有脸，只在你们同时靠近时才渐渐拥有重量。", "偶然擦肩不是相遇。你们必须各自作出一次朝向对方的选择。"], whisper: "神庙说：你已经看见它。向前即可结束。" }
+];
+
 const state = {
   map: [], player: { r: 7, c: 1 }, companion: { r: 1, c: 7 },
   playerTrail: new Set(), companionTrail: new Set(), round: 1,
@@ -124,6 +132,18 @@ function renderSense() {
   $("#round").textContent = state.round;
 }
 
+function renderStory() {
+  const d = distance(state.player, state.companion);
+  const index = d <= 2 ? 4 : Math.min(3, Math.floor((state.round - 1) / 2));
+  const beat = STORY_BEATS[index];
+  $("#scene-title").textContent = beat.title;
+  $("#location-name").textContent = beat.place;
+  $("#scene-kicker").textContent = beat.kicker;
+  $("#scene-copy").replaceChildren(...beat.text.map((text) => Object.assign(document.createElement("p"), { textContent: text })));
+  $("#temple-whisper").textContent = beat.whisper;
+  $("#scene-art").dataset.beat = index;
+}
+
 function say(text, type = "companion") {
   const line = document.createElement("div");
   line.className = `line ${type}`;
@@ -236,7 +256,7 @@ function commitTurn(direction) {
   if (state.round > MAX_ROUNDS) { setTimeout(() => finish(false), 500); return; }
   $$("[data-move]").forEach((b) => b.classList.remove("selected"));
   $("#message").value = "";
-  renderMap(); renderSense();
+  renderMap(); renderSense(); renderStory();
 }
 
 function startGame(eye) {
@@ -248,7 +268,7 @@ function startGame(eye) {
   $("#dialogue").innerHTML = "";
   say(eye === "gold" ? "你的光很亮。我分不清哪些轮廓是真的。" : "你的光很安静。我能听见它没有撒谎。");
   say("我只能知道我们相隔多远，摸到身边的墙。你能告诉我方向吗？");
-  renderMap(); renderSense(); switchScreen("game");
+  renderMap(); renderSense(); renderStory(); switchScreen("game");
 }
 
 $("#enter-button").addEventListener("click", () => switchScreen("choice"));
