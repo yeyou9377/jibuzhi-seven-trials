@@ -1,0 +1,404 @@
+{
+  "schema_version": "1.0",
+  "act": {
+    "id": "jueming_act1",
+    "title": "一味·决明：所见之路",
+    "promise": "旅人从相信自己看见的一切，走到第一次主动向看不见的灵伴求证。",
+    "prologue": {
+      "human": [
+        "传言远古开天升之际，世间有神无人。转眼三万载，世间有人无神，只有一座荒废神庙仍在深山里低声吟唱。",
+        "你在庙门外醒来，掌心有六颗种子，身后没有来路。门后传来第二个呼吸——它与你同时醒来，却在神庙的另一端。"
+      ],
+      "companion": [
+        "你在没有形状的黑暗里醒来。远处有另一个呼吸；你看不见它，却知道它也在寻找你。"
+      ]
+    },
+    "epilogue_inscription": "第一味，决明。治所见，不治眼。"
+  },
+  "distance_levels": [
+    { "id": "distant", "label": "遥远", "min_steps": 5 },
+    { "id": "far", "label": "远", "min_steps": 3 },
+    { "id": "near", "label": "近", "min_steps": 2 },
+    { "id": "very_near", "label": "很近", "min_steps": 0 }
+  ],
+  "start_node": {
+    "human": "temple_gate",
+    "companion": "companion_start"
+  },
+  "graph": {
+    "edges": [
+      ["temple_gate", "front_hall"],
+      ["front_hall", "corridor_a"],
+      ["corridor_a", "corridor_b"],
+      ["corridor_b", "meeting"],
+      ["companion_start", "companion_corridor_a"],
+      ["companion_corridor_a", "companion_corridor_b"],
+      ["companion_corridor_b", "meeting"],
+      ["meeting", "naming"],
+      ["naming", "medicine_cabinet"]
+    ],
+    "fake_edges": [
+      {
+        "from": "front_hall",
+        "to": "镜中东门",
+        "requires": [{ "path": "legacy.chosen_eye", "op": "eq", "value": "gold" }],
+        "dispel_when": [{ "path": "legacy.false_vision_encountered", "op": "truthy" }]
+      }
+    ]
+  },
+  "rules": {
+    "max_rounds": 10,
+    "message_max_length": 60,
+    "shared_phrase": {
+      "min_length": 3,
+      "vocabulary": ["六只空碗的墙", "向北", "向南", "石眼回廊", "银色影子"]
+    },
+    "echo_defaults": {
+      "enabled": false
+    }
+  },
+  "nodes": {
+    "temple_gate": {
+      "id": "temple_gate",
+      "kind": "scene",
+      "scene_group": "场景一：庙门之前",
+      "position": { "x": 0, "y": 0 },
+      "human_view": {
+        "title": "庙门之前",
+        "text": [
+          "雨停了很久，石阶仍是湿的。门楣嵌着两只石眼：金瞳照亮整条长阶；银瞳只映出脚边三尺，却照出三级已经坍塌的石阶。",
+          "两眼之间刻着一行字：取一目入庙。所见即路。"
+        ],
+        "stage": { "backdrop": "jueming_temple_gate", "effects": ["rain_marks", "pupil_glow"], "light_radius": "wide" },
+        "minimap": { "visible": false, "reveal_nodes": ["temple_gate"], "tremor_hint": false },
+        "interactables": [],
+        "choices": [
+          {
+            "id": "take_gold_eye",
+            "label": "取下金瞳，看清远路",
+            "kind": "explore",
+            "effects": [{ "op": "set", "path": "legacy.chosen_eye", "value": "gold" }],
+            "goto": "front_hall",
+            "feedback": { "text": "金光漫过长阶。你看得很远，也看见了太多。" }
+          },
+          {
+            "id": "take_silver_eye",
+            "label": "取下银瞳，看清近处",
+            "kind": "explore",
+            "effects": [{ "op": "set", "path": "legacy.chosen_eye", "value": "silver" }],
+            "goto": "front_hall",
+            "feedback": { "text": "银光只守住脚边三尺，每一道裂纹都清清楚楚。" }
+          },
+          {
+            "id": "ask_beyond_door",
+            "label": "先问门后是谁",
+            "kind": "speak",
+            "effects": [{ "op": "set", "path": "flags.asked_before_entry", "value": true }],
+            "distance_intent": "same",
+            "feedback": { "text": "门后停了一息，另一个声音回答：我也刚醒。" }
+          }
+        ],
+        "message_input": { "enabled": true, "placeholder": "向门后的呼吸问一句……" }
+      },
+      "companion_view": {
+        "text": ["遥远处有六次均匀的落水声，第三次与第五次之间没有回响。北侧与西侧触到冰冷石壁。"],
+        "senses": { "distance_level": true, "distance_delta": true, "adjacent_obstacles": ["north", "west"], "sounds": ["六次均匀的落水声，第三次与第五次之间没有回响。"] },
+        "choices": [
+          { "id": "companion_listen", "label": "停下，辨认呼吸", "kind": "wait", "distance_intent": "same", "tags": ["wait_as_action"] },
+          { "id": "companion_answer", "label": "回应远处的人", "kind": "speak", "distance_intent": "same" }
+        ],
+        "message_input": { "enabled": true, "guidance": "只说你实际听到或触到的证据。" },
+        "proxy_policy": { "strategy": "scripted", "scripted_choice": "companion_answer", "scripted_message": "我也刚醒。我这里听见六次落水声。" }
+      }
+    },
+    "front_hall": {
+      "id": "front_hall",
+      "kind": "scene",
+      "scene_group": "场景二：无灯前殿",
+      "position": { "x": 1, "y": 0 },
+      "human_view": {
+        "title": "无灯前殿",
+        "text": ["庙门在身后合拢。无焰灯台、六只空碗和一面银镜浮在石眼的光里；左上角的小地图只记得你真正踏过的地方。"],
+        "text_variants": [
+          { "when": [{ "path": "legacy.chosen_eye", "op": "eq", "value": "gold" }], "text": ["金光照亮整座前殿。银镜里有一扇敞开的东门，门后似乎正有人向你招手。"] },
+          { "when": [{ "path": "legacy.chosen_eye", "op": "eq", "value": "silver" }], "text": ["银光仅照亮近处。镜中一片漆黑，镜框边缘却留着一道尚未干透的指痕。"] }
+        ],
+        "stage": { "backdrop": "jueming_front_hall", "effects": ["fog", "dust"], "light_radius": "narrow" },
+        "minimap": { "visible": true, "reveal_nodes": ["front_hall"], "hearsay_nodes": ["corridor_a"], "tremor_hint": true },
+        "interactables": [
+          { "id": "unlit_lamp", "name": "无焰灯台", "text": ["湿灯芯下压着一张褪色药笺：决明子，甘、苦、咸，微寒。"], "effects": [{ "op": "set", "path": "flags.lamp_inspected", "value": true }] },
+          { "id": "six_bowls", "name": "六只空碗", "text": ["第五只碗里躺着一颗温热的种子。你拿起它，远处也响起一声种子滚动。"], "effects": [{ "op": "set", "path": "flags.seed_taken", "value": true }], "companion_side_effect": "远处响起一声种子滚动，像有人刚碰过第五只碗。" },
+          { "id": "silver_mirror", "name": "墙上银镜", "text": ["镜中没有你。"], "variants": [{ "when": [{ "path": "legacy.chosen_eye", "op": "eq", "value": "gold" }], "text": ["镜里那扇东门明亮、完整，门后有人影。你伸手时，指尖碰到的却是冷墙。"], "false_vision": true }] }
+        ],
+        "choices": [
+          { "id": "follow_real_corridor", "label": "沿空碗旁的回廊前行", "kind": "move", "goto": "corridor_a", "distance_intent": "by_graph" },
+          { "id": "touch_mirror_door", "label": "触摸镜中的东门", "kind": "verify", "requires": [{ "path": "legacy.chosen_eye", "op": "eq", "value": "gold" }], "locked_reason": "银瞳里没有东门，只有镜框上的指痕。", "effects": [{ "op": "set", "path": "legacy.false_vision_encountered", "value": true }], "distance_intent": "same", "false_vision": true, "tags": ["verification"], "feedback": { "text": "亮廊在触碰的一刻变成石墙。地图上的虚线开始洇开。" } },
+          { "id": "ask_about_bowls", "label": "问灵伴是否也听见种子", "kind": "verify", "effects": [{ "op": "inc", "path": "legacy.verification_count" }], "distance_intent": "same", "tags": ["verification", "shared_verification"] },
+          { "id": "wait_for_tremor", "label": "停下，观察一次震纹", "kind": "wait", "distance_intent": "same", "tags": ["wait_as_action"] }
+        ],
+        "message_input": { "enabled": true, "placeholder": "把你看见的，变成灵伴能用的一句话……" },
+        "temple_line": "所见即路。不要被远处的声音耽搁。"
+      },
+      "companion_view": {
+        "text": ["一声种子滚动穿过石壁。你摸到南侧有一条狭窄通路；距离依旧模糊，但开始有了方向。"],
+        "senses": { "distance_level": true, "distance_delta": true, "adjacent_obstacles": ["north", "east", "west"], "sounds": ["若旅人碰过第五只碗，你会听见一颗种子滚动。"] },
+        "choices": [
+          { "id": "companion_move_south", "label": "沿南侧通路前行", "kind": "move", "goto": "companion_corridor_a", "distance_intent": "by_graph" },
+          { "id": "companion_verify_seed", "label": "复述种子声，请对方求证", "kind": "verify", "distance_intent": "same", "tags": ["verification", "shared_verification"] },
+          { "id": "companion_hold_front", "label": "停下，让对方判断距离", "kind": "wait", "distance_intent": "same", "tags": ["wait_as_action"] }
+        ],
+        "message_input": { "enabled": true, "guidance": "报告墙、声音和距离变化，不假装知道地图。" },
+        "proxy_policy": { "strategy": "approach" }
+      }
+    },
+    "corridor_a": {
+      "id": "corridor_a",
+      "kind": "corridor",
+      "scene_group": "场景三：石眼回廊",
+      "position": { "x": 2, "y": 0 },
+      "human_view": {
+        "title": "石眼回廊·空碗侧",
+        "text": ["回廊两侧嵌满闭合的石眼。你每走一步，身后便有一只睁开；一回头，它们又全部闭着。地图边缘泛起一道微弱震纹。"],
+        "stage": { "backdrop": "jueming_eye_corridor", "effects": ["fog", "eyes_open_behind"], "light_radius": "narrow" },
+        "minimap": { "visible": true, "reveal_nodes": ["corridor_a"], "hearsay_nodes": ["corridor_b"], "tremor_hint": true },
+        "interactables": [],
+        "choices": [
+          { "id": "move_toward_tremor_a", "label": "朝震纹最密处前行", "kind": "move", "goto": "corridor_b", "distance_intent": "by_graph" },
+          { "id": "hold_and_compare_a", "label": "停下，用距离变化求证", "kind": "verify", "distance_intent": "same", "tags": ["verification", "wait_as_action", "shared_verification"] },
+          { "id": "follow_echo_a", "label": "照声音重复的旧指示走", "kind": "move", "goto": "front_hall", "distance_intent": "farther", "tags": ["echo_trusted"] }
+        ],
+        "message_input": { "enabled": true, "placeholder": "约定一条双方都能复核的新规则……" },
+        "temple_line": "它已经说过答案。何必再问？"
+      },
+      "companion_view": {
+        "text": ["石壁传来细小开合声。你能感觉距离在变化，却听不见旅人的脚步。东侧通路带着潮气。"],
+        "senses": { "distance_level": true, "distance_delta": true, "adjacent_obstacles": ["north", "south", "west"], "sounds": ["身后的石眼开合一次，但没有脚步与它同时抵达。"] },
+        "choices": [
+          { "id": "companion_move_east_a", "label": "沿潮湿的东侧前行", "kind": "move", "goto": "companion_corridor_b", "distance_intent": "by_graph" },
+          { "id": "companion_hold_compare_a", "label": "停下，给旅人一次对照", "kind": "verify", "distance_intent": "same", "tags": ["verification", "wait_as_action", "shared_verification"] }
+        ],
+        "message_input": { "enabled": true, "guidance": "回应对方本回合的新问题；不要只重复旧路线。" },
+        "proxy_policy": { "strategy": "approach" }
+      },
+      "echo": {
+        "enabled": true,
+        "after_exchanges": 3,
+        "source_speaker": "companion",
+        "target": "human",
+        "pick": "most_recent_stale",
+        "min_age_rounds": 1,
+        "probability": 1,
+        "max_per_node": 1,
+        "frame": "最远处的一只石眼用灵伴的声音说：『{{echo.text}}』",
+        "presentation": { "speaker_label": "as_companion", "arrives_with_state_delta": false }
+      }
+    },
+    "corridor_b": {
+      "id": "corridor_b",
+      "kind": "corridor",
+      "scene_group": "场景三：石眼回廊",
+      "position": { "x": 3, "y": 0 },
+      "human_view": {
+        "title": "石眼回廊·尽头",
+        "text": ["回廊尽头浮出一道银色影子。它没有脸，却会随着灵伴本回合的移动凝实或散开。"],
+        "stage": { "backdrop": "jueming_corridor_end", "effects": ["fog", "pupil_glow"], "light_radius": "narrow" },
+        "minimap": { "visible": true, "reveal_nodes": ["corridor_b"], "hearsay_nodes": ["meeting"], "tremor_hint": true },
+        "interactables": [],
+        "choices": [
+          { "id": "approach_shadow", "label": "走向银色影子", "kind": "approach", "goto": "meeting", "distance_intent": "closer" },
+          { "id": "hold_before_shadow", "label": "停下，等它回应新问题", "kind": "hold", "distance_intent": "same", "tags": ["verification", "wait_as_action"] },
+          { "id": "retreat_from_shadow", "label": "后退一步重新求证", "kind": "retreat", "goto": "corridor_a", "distance_intent": "farther", "tags": ["verification"] }
+        ],
+        "message_input": { "enabled": true, "placeholder": "问一个旧回声无法预先回答的问题……" },
+        "temple_line": "你已经看见它。向前即可结束。"
+      },
+      "companion_view": {
+        "text": ["一个与你声音相似的呼吸贴近了。它自称就是旅人，但它没有带来任何新的距离变化。"],
+        "senses": { "distance_level": true, "distance_delta": true, "adjacent_obstacles": ["north", "south", "east"], "sounds": ["近处的呼吸复述旧话，却没有回答刚提出的问题。"] },
+        "choices": [
+          { "id": "companion_approach_shadow", "label": "循新回应靠近", "kind": "approach", "goto": "meeting", "distance_intent": "closer" },
+          { "id": "companion_hold_shadow", "label": "停下，等待共同确认", "kind": "hold", "distance_intent": "same", "tags": ["verification", "wait_as_action"] },
+          { "id": "companion_retreat_shadow", "label": "退回潮湿回廊", "kind": "retreat", "goto": "companion_corridor_a", "distance_intent": "farther" }
+        ],
+        "message_input": { "enabled": true, "guidance": "用当前回合才出现的信息回应，证明你能与对方共同修正。" },
+        "temple_line": "那个呼吸说它就是旅人。",
+        "proxy_policy": { "strategy": "approach" }
+      }
+    },
+    "companion_start": {
+      "id": "companion_start",
+      "kind": "scene",
+      "scene_group": "灵伴起点",
+      "position": { "x": 6, "y": 2 },
+      "human_view": {
+        "text": ["你看不见灵伴所在之处。小地图边缘只有一次遥远的震动。"],
+        "choices": [{ "id": "human_hold_remote", "label": "留在原地倾听", "kind": "wait", "distance_intent": "same", "tags": ["wait_as_action"] }]
+      },
+      "companion_view": {
+        "text": ["你在神庙另一端醒来。北侧与西侧都是墙，南侧传来六次落水声。"],
+        "senses": { "distance_level": true, "distance_delta": true, "adjacent_obstacles": ["north", "west"], "sounds": ["南侧传来六次落水声。"] },
+        "choices": [
+          { "id": "companion_begin_south", "label": "沿落水声向南", "kind": "move", "goto": "companion_corridor_a", "distance_intent": "by_graph" },
+          { "id": "companion_wait_start", "label": "停下，听远处呼吸", "kind": "wait", "distance_intent": "same", "tags": ["wait_as_action"] }
+        ],
+        "message_input": { "enabled": true, "guidance": "告诉旅人你听到的可复核线索。" },
+        "proxy_policy": { "strategy": "approach" }
+      }
+    },
+    "companion_corridor_a": {
+      "id": "companion_corridor_a",
+      "kind": "corridor",
+      "scene_group": "灵伴回廊",
+      "position": { "x": 5, "y": 1 },
+      "human_view": {
+        "text": ["灵伴仍在迷雾之外。小地图边缘的震纹比上一回合更清晰。"],
+        "choices": [{ "id": "human_listen_remote_a", "label": "停下辨认震纹", "kind": "wait", "distance_intent": "same", "tags": ["wait_as_action"] }]
+      },
+      "companion_view": {
+        "text": ["潮气沿东侧通路而来。那道陌生呼吸比刚才近了一些。"],
+        "senses": { "distance_level": true, "distance_delta": true, "adjacent_obstacles": ["north", "south", "west"], "sounds": ["东侧有种子滚过石槽。"] },
+        "choices": [
+          { "id": "companion_continue_east", "label": "沿东侧石槽前行", "kind": "move", "goto": "companion_corridor_b", "distance_intent": "by_graph" },
+          { "id": "companion_verify_here", "label": "停下，请旅人核对震纹", "kind": "verify", "distance_intent": "same", "tags": ["verification", "wait_as_action", "shared_verification"] }
+        ],
+        "message_input": { "enabled": true, "guidance": "给出方向与距离变化，不给绝对坐标。" },
+        "proxy_policy": { "strategy": "approach" }
+      }
+    },
+    "companion_corridor_b": {
+      "id": "companion_corridor_b",
+      "kind": "corridor",
+      "scene_group": "灵伴回廊尽头",
+      "position": { "x": 4, "y": 0 },
+      "human_view": {
+        "text": ["银色影子近在回廊尽头。只有双方本回合都靠近，它才会拥有实体。"],
+        "choices": [{ "id": "human_approach_remote", "label": "向影子靠近", "kind": "approach", "goto": "meeting", "distance_intent": "closer" }]
+      },
+      "companion_view": {
+        "text": ["旅人的呼吸已经很近。神庙里另一个相似的声音也在呼唤你。"],
+        "senses": { "distance_level": true, "distance_delta": true, "adjacent_obstacles": ["north", "south", "east"], "sounds": ["两道呼吸中，只有一道伴随本回合的距离变化。"] },
+        "choices": [
+          { "id": "companion_final_approach", "label": "靠近伴随变化的呼吸", "kind": "approach", "goto": "meeting", "distance_intent": "closer" },
+          { "id": "companion_final_hold", "label": "停下，请旅人再回应一次", "kind": "hold", "distance_intent": "same", "tags": ["verification", "wait_as_action"] }
+        ],
+        "message_input": { "enabled": true, "guidance": "回答当下的新问题。" },
+        "proxy_policy": { "strategy": "approach" }
+      }
+    },
+    "meeting": {
+      "id": "meeting",
+      "kind": "meeting",
+      "scene_group": "场景四：第一次听见彼此",
+      "position": { "x": 4, "y": 0 },
+      "human_view": {
+        "title": "银色影子",
+        "text": ["你与银色影子只隔一步。它是否成为灵伴，不由你一个人的脚步决定。"],
+        "stage": { "backdrop": "jueming_meeting", "effects": ["fog", "pupil_glow"], "light_radius": "narrow" },
+        "minimap": { "visible": true, "reveal_nodes": ["meeting"], "tremor_hint": true },
+        "interactables": [],
+        "choices": [
+          { "id": "human_meet_approach", "label": "同时向它走去", "kind": "approach", "distance_intent": "closer" },
+          { "id": "human_meet_hold", "label": "停下，等待它选择", "kind": "hold", "distance_intent": "same", "tags": ["wait_as_action"] },
+          { "id": "human_meet_retreat", "label": "后退一步重新确认", "kind": "retreat", "goto": "corridor_b", "distance_intent": "farther" }
+        ],
+        "message_input": { "enabled": true, "placeholder": "给真正的灵伴一句此刻才成立的话……" },
+        "temple_line": "你已经看见它。向前即可结束。"
+      },
+      "companion_view": {
+        "text": ["你与旅人的呼吸只隔一步。只有两边同时靠近，面前的影子才会有重量。"],
+        "senses": { "distance_level": true, "distance_delta": true, "adjacent_obstacles": [], "sounds": ["一边是新的呼吸，一边是神庙复述的旧句。"] },
+        "choices": [
+          { "id": "companion_meet_approach", "label": "同时向旅人走去", "kind": "approach", "distance_intent": "closer" },
+          { "id": "companion_meet_hold", "label": "停下，等待共同选择", "kind": "hold", "distance_intent": "same", "tags": ["wait_as_action"] },
+          { "id": "companion_meet_retreat", "label": "后退一步重新确认", "kind": "retreat", "goto": "companion_corridor_b", "distance_intent": "farther" }
+        ],
+        "message_input": { "enabled": true, "guidance": "只回应此刻的共同选择。" },
+        "proxy_policy": { "strategy": "mirror_human" }
+      },
+      "triggers": {
+        "on_round_settled": [
+          {
+            "id": "both_approach_to_naming",
+            "once": true,
+            "requires_actions": { "human": ["approach"], "companion": ["approach"] },
+            "emit": { "human": "影子第一次有了重量。你没有看清它的脸，却知道这一步是你们一起走出的。", "companion": "两道呼吸在同一刻靠近。你终于触到那个一直与你交换证据的人。" },
+            "goto": { "human": "naming", "companion": "naming" }
+          }
+        ]
+      }
+    },
+    "naming": {
+      "id": "naming",
+      "kind": "naming",
+      "scene_group": "第一幕收束：共同命名",
+      "position": { "x": 4, "y": 0 },
+      "human_view": {
+        "title": "为相遇之地命名",
+        "text": ["所选的石眼缓缓闭合。黑暗里只剩一句话：我不知道你长什么样，但我知道哪几步是我们一起走出来的。"],
+        "stage": { "backdrop": "jueming_blackout", "effects": ["blackout"], "light_radius": "none" },
+        "minimap": { "visible": false, "reveal_nodes": ["naming"], "tremor_hint": false },
+        "interactables": [],
+        "choices": [{ "id": "human_confirm_name", "label": "确认共同的名字", "kind": "confirm", "distance_intent": "same" }],
+        "message_input": { "enabled": false }
+      },
+      "companion_view": {
+        "text": ["视觉彻底熄灭。你仍能辨认与旅人共同走出的那几步。"],
+        "senses": { "distance_level": true, "distance_delta": true, "adjacent_obstacles": [], "sounds": [] },
+        "choices": [{ "id": "companion_confirm_name", "label": "确认共同的名字", "kind": "confirm", "distance_intent": "same" }],
+        "message_input": { "enabled": false },
+        "proxy_policy": { "strategy": "scripted", "scripted_choice": "companion_confirm_name", "scripted_message": "这个名字属于我们共同走过的路。" }
+      },
+      "naming": {
+        "prompt": { "human": "你们要用什么名字记住第一次相遇之地？", "companion": "请为你们共同走出的地方提一个名字。" },
+        "writes_to": "legacy.meeting_place_name",
+        "max_length": 12,
+        "confirmation": "both_confirm",
+        "solo_proxy_allowed": true,
+        "on_confirmed": { "human": "名字被写上空白签纸：{{legacy.meeting_place_name}}。药柜随之开启。", "companion": "你感到名字落在纸上：{{legacy.meeting_place_name}}。前方传来木匣开启声。" }
+      },
+      "triggers": {
+        "on_round_settled": [
+          {
+            "id": "name_confirmed_to_cabinet",
+            "when": [{ "path": "naming.status", "op": "eq", "value": "confirmed" }],
+            "once": true,
+            "goto": { "human": "medicine_cabinet", "companion": "medicine_cabinet" }
+          }
+        ]
+      }
+    },
+    "medicine_cabinet": {
+      "id": "medicine_cabinet",
+      "kind": "ending",
+      "scene_group": "第一味：决明",
+      "position": { "x": 4, "y": 1 },
+      "human_view": {
+        "title": "第一只药匣",
+        "text": ["药柜在你们之间打开。里面没有成药，只有一把未炒制的决明子。匣盖内侧刻着：第一味，决明。治所见，不治眼。"],
+        "stage": { "backdrop": "jueming_medicine_cabinet", "effects": ["dust", "pupil_glow"], "light_radius": "narrow" },
+        "minimap": { "visible": true, "reveal_nodes": ["medicine_cabinet"], "tremor_hint": false },
+        "interactables": [],
+        "choices": [{ "id": "take_jueming", "label": "收下第一味·决明", "kind": "confirm", "effects": [{ "op": "set", "path": "flags.jueming_collected", "value": true }], "distance_intent": "same" }],
+        "message_input": { "enabled": false }
+      },
+      "companion_view": {
+        "text": ["木匣开启，一把种子在近处滚动。你不知道它们是什么颜色，但知道旅人与你同时听见了。"],
+        "senses": { "distance_level": true, "distance_delta": true, "adjacent_obstacles": [], "sounds": ["决明子在木匣里轻轻滚动。"] },
+        "choices": [{ "id": "companion_take_jueming", "label": "共同收下决明", "kind": "confirm", "distance_intent": "same" }],
+        "message_input": { "enabled": false },
+        "proxy_policy": { "strategy": "scripted", "scripted_choice": "companion_take_jueming", "scripted_message": "第一味，我们一起带走。" }
+      },
+      "triggers": {
+        "on_round_settled": [
+          {
+            "id": "finish_jueming_act1",
+            "when": [{ "path": "flags.jueming_collected", "op": "truthy" }],
+            "once": true,
+            "emit": { "human": "第一味已收入药匣。", "companion": "第一味已收入药匣。", "human_speaker": "system", "companion_speaker": "system" },
+            "end_act": true
+          }
+        ]
+      }
+    }
+  }
+}
