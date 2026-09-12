@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#11100d" />
+    <title>七味 · 一味决明</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="grain" aria-hidden="true"></div>
+
+    <main id="app">
+      <section id="prologue" class="screen prologue active">
+        <div class="herb-card">
+          <div class="herb-image-wrap">
+            <img src="assets/juemingzi.png" alt="古庙石壁上的银色眼瞳与决明子" class="herb-image" />
+            <div class="eye-glow"></div>
+          </div>
+          <div class="herb-copy">
+            <p class="eyebrow">七味 · 壹</p>
+            <h1>决明</h1>
+            <p class="latin">SEMEN CASSIAE</p>
+            <blockquote>看见的，未必在那里。<br />看不见的，未必不存在。</blockquote>
+            <div class="medicine-note">
+              <span>甘 · 苦 · 咸</span><i></i><span>微寒</span><i></i><span>入肝、大肠经</span>
+            </div>
+            <p class="story">
+              世间有神无人，三万年后，世间有人无神。你在荒废的神庙里醒来，眼前只剩一圈微光。黑暗深处，还有另一个呼吸。
+            </p>
+            <button id="enter-button" class="seal-button">叩开庙门</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="choice" class="screen choice-screen" aria-hidden="true">
+        <div class="choice-copy">
+          <p class="eyebrow">庙门之内 · 两只眼睛</p>
+          <h2>旅人，你相信哪一种看见？</h2>
+          <p>选择会改变你的视野，也会改变神庙如何欺骗你。</p>
+        </div>
+        <div class="eye-choices">
+          <button class="eye-choice gold" data-eye="gold">
+            <span class="iris">◉</span>
+            <strong>金瞳</strong>
+            <small>看得更远，也会看见神庙想让你看见的东西。</small>
+          </button>
+          <button class="eye-choice silver" data-eye="silver">
+            <span class="iris">◉</span>
+            <strong>银瞳</strong>
+            <small>只照亮近处，却不替黑暗编造轮廓。</small>
+          </button>
+        </div>
+      </section>
+
+      <section id="game" class="screen game-screen" aria-hidden="true">
+        <header class="game-header">
+          <div>
+            <p class="eyebrow">一味 · 决明</p>
+            <h2>失明庭</h2>
+          </div>
+          <div class="round-counter"><span id="round">1</span><small>/ 10 回合</small></div>
+        </header>
+
+        <div class="game-layout">
+          <section class="map-panel">
+            <div class="map-frame">
+              <div id="vibration" class="vibration" aria-live="polite"></div>
+              <div id="map" class="map" role="grid" aria-label="失明庭地图"></div>
+              <div id="shadow-message" class="shadow-message">你看见一枚不属于自己的影子。</div>
+            </div>
+            <div class="controls" aria-label="移动方向">
+              <button data-move="up" aria-label="向上">↑</button>
+              <button data-move="left" aria-label="向左">←</button>
+              <button data-move="stay" class="stay" aria-label="原地聆听">·</button>
+              <button data-move="right" aria-label="向右">→</button>
+              <button data-move="down" aria-label="向下">↓</button>
+            </div>
+            <p class="control-hint">选择一步，再把一句话留给黑暗。方向键 / WASD 也可以移动。</p>
+          </section>
+
+          <aside class="companion-panel">
+            <div class="companion-heading">
+              <span class="companion-sigil">✦</span>
+              <div><small>与你配对的小机</small><h3>无名灵伴</h3></div>
+              <span id="distance-badge" class="distance-badge">遥远</span>
+            </div>
+
+            <div class="sense-box">
+              <p class="label">它能感知</p>
+              <div class="sense-row"><span>距离</span><strong id="distance-text">遥远</strong></div>
+              <div class="sense-row"><span>变化</span><strong id="delta-text">尚无</strong></div>
+              <div class="sense-row"><span>触感</span><strong id="walls-text">北侧有墙</strong></div>
+            </div>
+
+            <div id="dialogue" class="dialogue" aria-live="polite"></div>
+
+            <div class="message-composer">
+              <label for="message">本回合只能说一句</label>
+              <div class="quick-messages">
+                <button data-message="我循着震动向你走。">循震而行</button>
+                <button data-message="我停在原地，你来找我。">原地等候</button>
+                <button data-message="别信回声，记住我的方向。">提防回声</button>
+              </div>
+              <textarea id="message" maxlength="60" placeholder="告诉它你看见了什么，或准备往哪里走……"></textarea>
+              <button id="commit-turn" class="commit-button" disabled>同时行动</button>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section id="ending" class="screen ending-screen" aria-hidden="true">
+        <div class="ending-card">
+          <p class="eyebrow">第一味 · 已得</p>
+          <div class="seed-mark">❋</div>
+          <h2 id="ending-title">你们在黑暗里认出了彼此</h2>
+          <p id="ending-copy">银色的眼睛闭上了。神庙第一次没有替你们解释发生了什么。</p>
+          <label for="place-name">给相遇之地取一个名字</label>
+          <input id="place-name" maxlength="20" placeholder="例如：灯挨着花放" />
+          <button id="name-place" class="seal-button">收下决明子</button>
+          <div id="keepsake" class="keepsake" hidden></div>
+          <button id="restart" class="text-button" hidden>再走一次失明庭</button>
+        </div>
+      </section>
+    </main>
+
+    <script src="game.js"></script>
+  </body>
+</html>
