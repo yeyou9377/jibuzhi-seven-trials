@@ -1,6 +1,6 @@
 # 七味 · 引擎 API 草案
 
-状态：草案 v0.1，对应 `schemas/scenes.schema.json` 与 `schemas/state.schema.json` 的 1.0。
+状态：草案 v0.2，对应 `schemas/scenes.schema.json` 1.1 与 `schemas/state.schema.json`。v0.2 加入双人合作回合机制（提交即锁定 → 双方锁定后同时揭示 → 结算）。
 
 一句话：**引擎是一台只读 `scenes.json`、只写 `state` 的结算机。** 前端从不直接读 `scenes.json`，只通过 API 拿到按角色裁剪过的视图。文字、选项、后果、触发器、回声规则全部来自 `scenes.json`；换一幕、改一句话、加一个选项，都不动引擎代码。
 
@@ -50,7 +50,34 @@ Authorization: Bearer <role_token>
 | GET | `/sessions/:id/rounds/:n/wait` | 长轮询版 result，最多挂 25 秒。 |
 | POST | `/sessions/:id/rounds/:n/advance` | 结算后进入下一回合（把 `phase` 从 `settled` 拨到 `collecting`）。任一方调即可，幂等。 |
 
-双方都提交后引擎自动结算，不需要单独的 settle 接口。`paired` 模式下若一方超过 `round.deadline_at` 未提交，由超时代理补交 `hold`（`by_proxy: true`）。
+`paired` 模式下若一方超过 `round.deadline_at` 未提交，由超时代理补交 `hold`（`by_proxy: true`）。
+
+### 合作回合（v0.2）
+
+`/rounds/:n/submit` 是带回合号的严格版；下面三条是前端日常用的简写版，作用于**当前回合**，回合号从 `round.index` 取。两套接口打到同一个状态机。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/sessions/:id/round/submit` | 提交本回合的动作与留话。body: `{ action_id, message?, trusted_message_id? }`（`action_id` 即 `choice_id`，两名都收）。成功即锁定（`round_state[role]_locked = true`），再调返回 409 `submission_locked`。只有所选 Choice 的 `lock_on_submit: false` 且对方尚未锁定时，可先 `POST /round/withdraw` 再重交。返回 `RoundStatusView`。 |
+| GET | `/sessions/:id/round/status` | 当前回合状态：`{ index, phase, me: { locked, can_withdraw, submission }, other: { locked }, deadline_at, reveal_ready }`。**对方只有一个布尔值**——提交了没有；提交了什么、什么时候提交的，都不给。前端用它画「等待灵伴……」。可加 `?wait=1` 长轮询，最多挂 25 秒，`other.locked` 变化即返回。 |
+| POST | `/sessions/:id/round/reveal` | 双方都锁定后触发揭示。任一方调即可，幂等；`reveal_ready = false` 时 409 `reveal_not_ready`。揭示把 `round_state.pending_reveal` 复制进 `round.human_submission` / `round.companion_submission`，双方留话落 `transcript`，然后立刻进入结算流水线（第 3 节）。返回按角色裁剪的 `RoundResult`。服务端也会在第二方锁定时**自动**调一次 reveal，所以前端不调也行——这条接口存在是为了让前端能显式等到「双方都锁定」这一刻再翻牌，做同时揭示的动画。 |
+| POST | `/sessions/:id/round/withdraw` | 撤回自己未锁定的提交（仅 `lock_on_submit: false` 的选项，且对方未锁定）。否则 409 `submission_locked`。 |
+
+回合状态机（`state.round_state.phase`）：
+
+```
+sensing ──任一方 submit──▶ submitting ──另一方 submit──▶ revealing ──▶ settling ──▶ (下一回合) sensing
+   ▲                            │                              │
+   └────── withdraw（仅未锁定）──┘                              └─ reveal_order = simultaneous 时瞬时完成：
+                                                                  两边同一次响应里拿到对方的话
+```
+
+规则：
+
+- **提交即锁定。** `Choice.lock_on_submit` 默认 true；`rules.round.lock_on_submit` 可改全局默认。锁定的提交不能改动作也不能改留话。
+- **揭示前互不可见。** `pending_reveal` 是 server_private；`GET /view` 与 `GET /round/status` 里永远没有它。人类的留话在灵伴锁定之前不会送到灵伴那边，反之亦然——所以灵伴（模型）不能先看人类说了什么再决定自己怎么走。这是合作机制成立的前提。
+- **同时揭示。** `rules.round.reveal_order` 第一幕固定 `simultaneous`。两份 `RoundResult.messages` 在同一次结算里生成，`arrived_with_state_delta = true`。
+- **超时代理**补交的 `hold` 同样走锁定 → 揭示。
 
 ### 探索（不消耗回合）
 
@@ -76,9 +103,15 @@ Authorization: Bearer <role_token>
 
 ## 3. 结算流水线
 
-双方都提交（或代理补交）后，`phase → settling`，按下面顺序执行，全部完成后 `phase → settled`。顺序是硬约束，改顺序等于改规则。
+双方都锁定（或代理补交）并揭示后，`phase → settling`，按下面顺序执行，全部完成后 `phase → settled`。顺序是硬约束，改顺序等于改规则。
 
 ```
+0. 揭示（POST /round/reveal 或第二方锁定时自动）
+   - round_state.phase → revealing
+   - pending_reveal → round.human_submission / round.companion_submission（回填 action_kind）
+   - reveal_order = simultaneous：一步完成；其他顺序留给后续幕
+   - round_state.phase → settling
+
 1. 校验两份 Submission
    - choice_id 存在于各自视图的 choices 里
    - requires 满足（锁定的选项服务端也拒绝，409）
@@ -106,13 +139,21 @@ Authorization: Bearer <role_token>
    - 遍历双方当前节点的 on_distance_change，按 from/to/direction/when 过滤
    - 执行 effects / emit / goto / distance_shift / end_act
 
-6. on_round_settled
-   - 遍历双方当前节点的 on_round_settled
-   - requires_actions 对照 Submission.choice_kind
+6. on_round_settled（组合判定）
+   - 遍历双方当前节点的 on_round_settled，按 priority 降序
+   - requires_actions 对照 Submission.choice_kind：
+       每方一个 ActionTag 或列表；"*" 或省略 = 任意；列表任一命中即可
+   - 命中且 when 成立 → 执行；同一节点可多条命中（不互斥），除非触发器 goto/end_act
+   - 一条都没命中 → 执行节点级 default_outcome（若有）
+   - combo 只是模板标签，不参与运行时判断，只供 lint 与日志：
+       synergy     双方证据与行动互补（如 human: verify + companion: speak）
+       conflict    信息对不上，暴露谎言（如 human: confirm + companion: retreat，when 里对照 round.*）
+       mutual_wait 双方都停下，获得新线索（human: [wait,hold] + companion: [wait,hold]）
    - 第一幕的相遇判定就在这里：
-       human ∈ [approach] 且 companion ∈ [approach] → 影子有实体，goto naming 节点
-       只有一方 approach → emit「影子碎成决明子」，distance_shift +1
-       都不 approach → 什么都不发生
+       { human: "approach", companion: "approach" }  → 影子有实体，goto naming 节点（synergy）
+       { human: "approach", companion: "*" } / 反之 → emit「影子碎成决明子」，distance_shift +1（conflict，priority 低于上一条）
+       { human: ["wait","hold"], companion: ["wait","hold"] } → emit 新线索（mutual_wait）
+       其余组合 → default_outcome
 
 7. shared_phrase
    - legacy.shared_phrase 为 null 时，用 rules.shared_phrase 在本回合双方 message 里找共同表达
@@ -147,6 +188,8 @@ Authorization: Bearer <role_token>
 | `position.human` | ✓（只有当前节点 id 与 visited） | ✗ |
 | `position.companion` | ✗ | ✓ |
 | `round.submissions[对方]` | ✗（结算前后都不给原始提交；结算后只给 RoundResult 里裁剪过的 messages） | ✗ |
+| `round_state.pending_reveal` | ✗ | ✗ |
+| `round_state.other` | 只有 `{ locked }` | 只有 `{ locked }` |
 | `messages` | `to` 含 human | `to` 含 companion |
 | `transcript` / `echoes` / `fired_triggers` | ✗ | ✗ |
 | `RoundResult.actions[对方]` | ✗ | ✗ |
@@ -245,7 +288,10 @@ not_started
 | 403 | `wrong_role` | 用 companion 令牌调 inspect 之类 |
 | 404 | `no_session` / `no_node` / `no_choice` | |
 | 409 | `round_mismatch` | 提交的 n ≠ round.index |
-| 409 | `already_submitted` | 本回合已提交 |
+| 409 | `already_submitted` | 本回合已提交（旧接口；新接口统一用 submission_locked） |
+| 409 | `submission_locked` | 已锁定后再 submit / withdraw |
+| 409 | `reveal_not_ready` | 有一方未锁定就调 reveal |
+| 409 | `round_phase` | 在 revealing / settling 阶段调 submit |
 | 409 | `choice_locked` | requires 不满足，body 里带 `locked_reason` |
 | 409 | `naming_state` | 命名流程顺序不对 |
 | 422 | `message_too_long` | 超过 rules.message_max_length |
@@ -261,6 +307,9 @@ not_started
 4. **数据驱动**：把 `scenes.json` 里所有 `text`/`label` 替换成随机字符串再跑一遍全部用例，结果状态（legacy/position/distance）必须逐字节相同。
 5. **遗产字段**：一局跑完，`legacy` 七个字段都被写过至少一次的路径存在（用 solo_proxy 跑三种策略覆盖）。
 6. **命名双确认**：paired 模式下只有一方 confirm 时 `legacy.meeting_place_name` 保持 null。
+7. **锁定不可改**：submit 后再 submit 必须 409 `submission_locked`，且 `round.submissions[role]` 逐字节不变。
+8. **揭示前不泄漏**：一方锁定、另一方未锁定期间，未锁定方的 `GET /view` 与 `GET /round/status` 序列化后不含对方的 `message` 文本与 `action_id`；`pending_reveal` 在任何角色响应里都不出现。
+9. **组合判定覆盖**：对每个有 on_round_settled 的节点，穷举 ActionKind × ActionKind，每一对都必须命中至少一条触发器或 default_outcome（否则 lint 警告「未处理的组合」）；通配触发器 priority 不得 ≥ 同节点具体触发器。
 
 ---
 

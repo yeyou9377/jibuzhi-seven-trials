@@ -5,7 +5,7 @@
   "description": "一局游戏的完整服务端状态。分三层：public（双方都可见）、per-role（只给对应角色）、server_private（绝不下发）。前端从 API 拿到的是 $defs/HumanStateView 或 $defs/CompanionStateView，永远不是整个对象。",
   "type": "object",
   "additionalProperties": false,
-  "required": ["session", "players", "position", "distance", "round", "legacy", "flags", "counters", "naming", "fired_triggers", "transcript", "echoes"],
+  "required": ["session", "players", "position", "distance", "round", "round_state", "legacy", "flags", "counters", "naming", "fired_triggers", "transcript", "echoes"],
   "properties": {
     "session": {
       "type": "object",
@@ -82,7 +82,47 @@
           }
         },
         "last_result": { "oneOf": [{ "$ref": "#/$defs/RoundResult" }, { "type": "null" }] },
-        "exchanges": { "type": "integer", "minimum": 0, "description": "双方都留了话的回合数。回声规则 after_exchanges 读这个。" }
+        "exchanges": { "type": "integer", "minimum": 0, "description": "双方都留了话的回合数。回声规则 after_exchanges 读这个。" },
+        "human_submission": { "oneOf": [{ "$ref": "#/$defs/RevealedSubmission" }, { "type": "null" }], "description": "揭示后的人类提交（scenes.schema.json $defs/Round 的形状）。揭示前为 null。触发器模板 {{round.human_submission.message}} 读这里。" },
+        "companion_submission": { "oneOf": [{ "$ref": "#/$defs/RevealedSubmission" }, { "type": "null" }], "description": "揭示后的灵伴提交。揭示前为 null。" }
+      }
+    },
+
+    "round_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "human_locked", "companion_locked", "pending_reveal"],
+      "description": "当前回合的合作机制状态。比 round.phase 更细：round.phase 的 collecting 对应这里的 sensing / submitting，settling 对应 revealing / settling。GET /round/status 下发的就是这个对象按角色裁剪后的版本。",
+      "properties": {
+        "phase": {
+          "type": "string",
+          "enum": ["sensing", "submitting", "revealing", "settling"],
+          "description": "sensing 双方在读节点、探索、写话，还没人提交；submitting 至少一方已提交并锁定，等另一方；revealing 双方都锁定，正在按 reveal_order 揭示（同时揭示时这一阶段瞬时完成）；settling 揭示完毕，引擎跑结算流水线。结算完回到下一回合的 sensing。"
+        },
+        "human_locked": { "type": "boolean", "description": "人类是否已提交并锁定。锁定后 POST /round/submit 返回 409 submission_locked。" },
+        "companion_locked": { "type": "boolean", "description": "灵伴是否已提交并锁定。" },
+        "locked_at": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "human": { "type": ["string", "null"], "format": "date-time" },
+            "companion": { "type": ["string", "null"], "format": "date-time" }
+          }
+        },
+        "pending_reveal": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["human_message", "companion_message"],
+          "description": "server_private，直到 revealing 结束。双方已锁定但尚未揭示的留话；揭示后复制进 round.human_submission / round.companion_submission 并落 transcript，这里清空。任何一方在 revealing 之前都拿不到对方的那一条。",
+          "properties": {
+            "human_message": { "type": ["string", "null"] },
+            "companion_message": { "type": ["string", "null"] },
+            "human_action_id": { "type": ["string", "null"] },
+            "companion_action_id": { "type": ["string", "null"] }
+          }
+        },
+        "reveal_order": { "type": "string", "enum": ["simultaneous", "human_first", "companion_first"], "default": "simultaneous", "description": "从 scenes.json rules.round.reveal_order 复制。" },
+        "revealed_at": { "type": ["string", "null"], "format": "date-time" }
       }
     },
 
@@ -209,7 +249,52 @@
         "message": { "type": ["string", "null"], "description": "留给对方的一句话；允许为空。" },
         "trusted_message_id": { "type": ["string", "null"], "description": "玩家标记「我信这句」的消息 id。若指向一条回声，echo_trusted_count +1。前端只知道 id，不知道它是不是回声。" },
         "submitted_at": { "type": "string", "format": "date-time" },
-        "by_proxy": { "type": "boolean", "default": false, "description": "由本地代理或超时代理代交。" }
+        "by_proxy": { "type": "boolean", "default": false, "description": "由本地代理或超时代理代交。" },
+        "locked": { "type": "boolean", "default": true, "description": "是否已锁定。由 Choice.lock_on_submit（缺省取 rules.round.lock_on_submit）决定；false 时允许在对方锁定前撤回重交。" }
+      }
+    },
+
+    "RevealedSubmission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message", "action_id"],
+      "description": "揭示后的提交物，形状与 scenes.schema.json $defs/RoundSubmission 一致。",
+      "properties": {
+        "message": { "type": "string", "description": "留话；没留则为空字符串。" },
+        "action_id": { "type": "string", "description": "所选 Choice 的 id。" },
+        "action_kind": { "type": "string", "description": "引擎回填的 ActionKind。" }
+      }
+    },
+
+    "RoundStatusView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index", "phase", "me", "other"],
+      "description": "GET /sessions/:id/round/status 的响应体。只告诉你谁锁定了，不告诉你对方提交了什么。",
+      "properties": {
+        "index": { "type": "integer" },
+        "phase": { "type": "string", "enum": ["sensing", "submitting", "revealing", "settling"] },
+        "me": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["locked"],
+          "properties": {
+            "locked": { "type": "boolean" },
+            "can_withdraw": { "type": "boolean", "description": "自己的提交 locked=false 且对方尚未锁定时为 true。" },
+            "submission": { "oneOf": [{ "$ref": "#/$defs/Submission" }, { "type": "null" }] }
+          }
+        },
+        "other": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["locked"],
+          "description": "对方只有一个布尔值。没有 message、没有 action_id、没有 submitted_at。",
+          "properties": {
+            "locked": { "type": "boolean" }
+          }
+        },
+        "deadline_at": { "type": ["string", "null"], "format": "date-time" },
+        "reveal_ready": { "type": "boolean", "description": "双方都锁定、可以调 POST /round/reveal。" }
       }
     },
 
@@ -305,6 +390,7 @@
             "waiting_for_other": { "type": "boolean" }
           }
         },
+        "round_state": { "$ref": "#/$defs/RoundStatusView", "description": "同 GET /round/status。pending_reveal 永远不在视图里。" },
         "distance": {
           "type": "object",
           "required": ["level", "label", "delta", "tremor_direction"],
@@ -340,6 +426,7 @@
       "properties": {
         "session": { "$ref": "#/$defs/HumanStateView/properties/session" },
         "round": { "$ref": "#/$defs/HumanStateView/properties/round" },
+        "round_state": { "$ref": "#/$defs/RoundStatusView" },
         "distance": {
           "type": "object",
           "required": ["level", "label", "delta"],

@@ -9,8 +9,8 @@
   "properties": {
     "schema_version": {
       "type": "string",
-      "const": "1.0",
-      "description": "本 schema 的版本。引擎按此判断能否加载。"
+      "enum": ["1.0", "1.1"],
+      "description": "本 schema 的版本。引擎按此判断能否加载。1.1 加入双人合作回合机制：ActionTag 通配符、combo 模板、节点级 default_outcome、Choice.lock_on_submit、rules.round。1.0 文件仍可加载，requires_actions 的数组写法保持有效。"
     },
     "act": {
       "type": "object",
@@ -108,7 +108,8 @@
             }
           }
         },
-        "echo_defaults": { "$ref": "#/$defs/EchoRule" }
+        "echo_defaults": { "$ref": "#/$defs/EchoRule" },
+        "round": { "$ref": "#/$defs/RoundRule" }
       }
     },
     "nodes": {
@@ -145,8 +146,8 @@
 
     "StatePath": {
       "type": "string",
-      "description": "指向存档（state.schema.json）里某个字段的点路径。允许的根：legacy / flags / counters / distance / round / position / naming。",
-      "pattern": "^(legacy|flags|counters|distance|round|position|naming)(\\.[a-zA-Z0-9_]+)+$"
+      "description": "指向存档（state.schema.json）里某个字段的点路径。允许的根：legacy / flags / counters / distance / round / round_state / position / naming。round.human_submission.* / round.companion_submission.* 只在揭示之后可读。",
+      "pattern": "^(legacy|flags|counters|distance|round|round_state|position|naming)(\\.[a-zA-Z0-9_]+)+$"
     },
     "Condition": {
       "type": "object",
@@ -213,6 +214,88 @@
       "enum": ["explore", "move", "wait", "speak", "approach", "hold", "retreat", "verify", "confirm"],
       "description": "动作类别。wait 是正式动作（计入 wait_as_action_count）；verify 表示主动求证（计入 verification_count）；approach/hold/retreat 用于相遇节点，由 on_round_settled 触发器读取。"
     },
+    "ActionTag": {
+      "description": "触发器对某一方动作的要求：一个 ActionKind，或通配符 * 表示任意动作。",
+      "oneOf": [
+        { "$ref": "#/$defs/ActionKind" },
+        { "type": "string", "const": "*" }
+      ]
+    },
+    "ActionRequirement": {
+      "description": "单个 ActionTag，或多个 ActionTag 的列表（任一命中即可，含 * 等于任意）。",
+      "oneOf": [
+        { "$ref": "#/$defs/ActionTag" },
+        { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/ActionTag" } }
+      ]
+    },
+    "ComboKind": {
+      "type": "string",
+      "enum": ["synergy", "conflict", "mutual_wait"],
+      "description": "双人组合模板。synergy 协同：双方证据与行动互补，合起来才成一件事；conflict 矛盾：两边信息对不上，暴露其中一方拿到的是假象或谎言；mutual_wait 共同停留：双方都停下（wait/hold），因此获得单独行动拿不到的新线索。模板只标注意图供引擎与 lint 校验（如 mutual_wait 的 requires_actions 必须双方都在 wait/hold 里），文字与后果仍全部来自本触发器。"
+    },
+    "RoundRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "回合的合作机制。每回合双方各自提交一次 Submission（动作 + 留话），提交即锁定；引擎等双方都锁定后按 reveal_order 揭示，再结算。",
+      "properties": {
+        "reveal_order": {
+          "type": "string",
+          "enum": ["simultaneous", "human_first", "companion_first"],
+          "default": "simultaneous",
+          "description": "揭示顺序。simultaneous 同时揭示：任何一方在双方都锁定前都看不到对方的留话与动作。human_first / companion_first 仅供后续幕实验，第一幕固定 simultaneous。"
+        },
+        "lock_on_submit": {
+          "type": "boolean",
+          "default": true,
+          "description": "全局默认：提交后是否锁定。Choice.lock_on_submit 可逐项覆盖。"
+        },
+        "human_submission": { "$ref": "#/$defs/RoundSubmissionShape" },
+        "companion_submission": { "$ref": "#/$defs/RoundSubmissionShape" }
+      }
+    },
+    "RoundSubmissionShape": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "一方提交物的形状说明：message 留话，action_id 所选 Choice 的 id。这里只声明约束（是否必填、长度），实际值在运行时的 state.round.submissions 与 state.round_state.pending_reveal 里。触发器模板可用 {{round.human_submission.message}} / {{round.companion_submission.action_id}} 引用。",
+      "properties": {
+        "message": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "required": { "type": "boolean", "default": false },
+            "max_length": { "type": "integer", "minimum": 1, "description": "省略则用 rules.message_max_length。" }
+          }
+        },
+        "action_id": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "required": { "type": "boolean", "default": true }
+          }
+        }
+      }
+    },
+    "Round": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["human_submission", "companion_submission"],
+      "description": "一个已揭示回合的完整内容。这是触发器模板里 {{round.*}} 所指的结构；引擎在揭示阶段组装，结算时供 requires_actions 与 Template 读取。",
+      "properties": {
+        "index": { "type": "integer", "minimum": 0 },
+        "human_submission": { "$ref": "#/$defs/RoundSubmission" },
+        "companion_submission": { "$ref": "#/$defs/RoundSubmission" },
+        "reveal_order": { "type": "string", "enum": ["simultaneous", "human_first", "companion_first"], "default": "simultaneous" }
+      }
+    },
+    "RoundSubmission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message", "action_id"],
+      "properties": {
+        "message": { "type": "string", "description": "留给对方的话；没留则为空字符串。" },
+        "action_id": { "$ref": "#/$defs/Identifier", "description": "所选 Choice 的 id。" }
+      }
+    },
     "Choice": {
       "type": "object",
       "additionalProperties": false,
@@ -225,6 +308,11 @@
         "locked_reason": { "$ref": "#/$defs/Template", "description": "条件不足时给玩家看的原因，如「你尚未确认声音来自谁」。" },
         "hidden_when": { "$ref": "#/$defs/ConditionList", "description": "极少数需要彻底不出现的情况（如已经做过一次的独占动作）。" },
         "effects": { "$ref": "#/$defs/EffectList", "description": "提交即写入的状态变化（在回合结算前生效）。" },
+        "lock_on_submit": {
+          "type": "boolean",
+          "default": true,
+          "description": "提交后锁定：本回合不能再改动作与留话，直到揭示。默认 true。设为 false 的选项允许在对方锁定前撤回重选（用于「先探一下」类的试探动作）；但一旦双方都锁定就进入揭示，任何选项都不可再改。"
+        },
         "goto": { "$ref": "#/$defs/Goto" },
         "distance_intent": {
           "type": "string",
@@ -410,6 +498,25 @@
         "companion_speaker": { "type": "string", "enum": ["temple", "system", "narrator"], "default": "narrator" }
       }
     },
+    "Outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "一次结算的后果包：状态写入、成品消息、强制移动、距离修正、结束本幕。触发器与节点级 default_outcome 共用。",
+      "properties": {
+        "effects": { "$ref": "#/$defs/EffectList" },
+        "emit": { "$ref": "#/$defs/Emit" },
+        "goto": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "human": { "$ref": "#/$defs/Goto" },
+            "companion": { "$ref": "#/$defs/Goto" }
+          }
+        },
+        "distance_shift": { "type": "integer" },
+        "end_act": { "type": "boolean", "default": false }
+      }
+    },
     "TriggerBase": {
       "type": "object",
       "required": ["id"],
@@ -445,17 +552,26 @@
             "requires_actions": {
               "type": "object",
               "additionalProperties": false,
-              "description": "对本回合双方动作类别的要求。用于「双方同时靠近才相遇」这类规则。",
+              "description": "对本回合双方动作类别的要求。每一方写一个 ActionTag（ActionKind 或通配符 *），也可写列表表示任一命中。省略某一方等于 *。用于「双方同时靠近才相遇」「一方求证、一方停留」这类组合规则。示例：{ \"human\": \"approach\", \"companion\": \"approach\" }；{ \"human\": \"verify\", \"companion\": \"*\" }；{ \"human\": [\"wait\", \"hold\"], \"companion\": [\"wait\", \"hold\"] }。",
               "properties": {
-                "human": { "type": "array", "items": { "$ref": "#/$defs/ActionKind" } },
-                "companion": { "type": "array", "items": { "$ref": "#/$defs/ActionKind" } }
+                "human": { "$ref": "#/$defs/ActionRequirement" },
+                "companion": { "$ref": "#/$defs/ActionRequirement" }
               }
+            },
+            "combo": {
+              "$ref": "#/$defs/ComboKind",
+              "description": "本触发器套用的组合模板。可省略；写了则 lint 会校验 requires_actions 与模板意图一致：synergy 要求双方都不是 *（互补必须是两件具体的事）；conflict 要求 when 里至少引用一个双方不一致的状态或 round.* 路径；mutual_wait 要求双方都在 [wait, hold] 内。"
+            },
+            "priority": {
+              "type": "integer",
+              "default": 0,
+              "description": "同一节点多个 on_round_settled 同时命中时的优先级，大者先。具体组合（不含 *）应高于含 * 的兜底，lint 会在通配触发器优先级 ≥ 具体触发器时警告。"
             }
           }
         }
       ],
       "unevaluatedProperties": false,
-      "description": "回合结算触发器：双方都已提交并结算后评估。"
+      "description": "回合结算触发器：双方都已锁定并揭示后评估。同一节点里 requires_actions 一个都不命中时，走节点级 default_outcome。"
     },
     "DistanceChangeTrigger": {
       "allOf": [
@@ -559,6 +675,10 @@
         "human_view": { "$ref": "#/$defs/HumanView" },
         "companion_view": { "$ref": "#/$defs/CompanionView" },
         "triggers": { "$ref": "#/$defs/Triggers" },
+        "default_outcome": {
+          "$ref": "#/$defs/Outcome",
+          "description": "节点级兜底：本回合双方动作的组合没有命中任何 on_round_settled 的 requires_actions（或命中了但 when 不成立）时执行。用来处理作者没有逐一列出的组合，如「一方探索、一方说话」——通常只 emit 一句轻描淡写的叙述，不改状态。省略则什么都不发生。评估位置与 on_round_settled 相同，在其之后。"
+        },
         "echo": { "$ref": "#/$defs/EchoRule", "description": "覆盖 rules.echo_defaults。" },
         "naming": { "$ref": "#/$defs/NamingRule", "description": "仅 kind = naming 时使用。" },
         "notes": { "type": "string", "description": "作者备注，不下发。" }
