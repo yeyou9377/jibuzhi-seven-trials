@@ -1,0 +1,574 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jibuzhi.dengyuanst.com/schemas/scenes.schema.json",
+  "title": "七味 · 场景文件（scenes.json）",
+  "description": "一幕的全部叙事数据。引擎只读这个文件来决定文字、选项、后果、触发器与回声规则；更换场景文字、选项和后果时只改本文件，不改引擎。同一节点对人类与灵伴的内容分别放在 human_view / companion_view，两者结构不同、字段不同，引擎按角色只下发其中一份。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "act", "distance_levels", "start_node", "nodes"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0",
+      "description": "本 schema 的版本。引擎按此判断能否加载。"
+    },
+    "act": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Identifier", "description": "幕的 id，如 jueming_act1。" },
+        "title": { "type": "string", "description": "幕的标题，如「一味·决明：第一幕」。" },
+        "promise": { "type": "string", "description": "本幕承诺：玩家要经历的那一件完整的事。仅供作者与测试对照，不下发前端。" },
+        "prologue": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "开场文字。人类与灵伴各自一份，可为空。",
+          "properties": {
+            "human": { "$ref": "#/$defs/Paragraphs" },
+            "companion": { "$ref": "#/$defs/Paragraphs" }
+          }
+        },
+        "epilogue_inscription": { "type": "string", "description": "宝箱题字，如「第一味，决明。治所见，不治眼。」" }
+      }
+    },
+    "distance_levels": {
+      "type": "array",
+      "minItems": 2,
+      "description": "距离等级，由远到近排列。引擎把节点步数映射到这里；灵伴只收到 id 与 label，收不到步数。",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "min_steps"],
+        "properties": {
+          "id": { "$ref": "#/$defs/Identifier" },
+          "label": { "type": "string", "description": "给玩家看的词，如 遥远 / 远 / 近 / 很近。" },
+          "min_steps": { "type": "integer", "minimum": 0, "description": "落入此等级的最小步数（含）。" }
+        }
+      }
+    },
+    "start_node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["human", "companion"],
+      "description": "两人各自的起始节点。第一幕里两人在神庙两端醒来，所以不是同一个节点。",
+      "properties": {
+        "human": { "$ref": "#/$defs/NodeRef" },
+        "companion": { "$ref": "#/$defs/NodeRef" }
+      }
+    },
+    "graph": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "节点之间的空间连线，用来计算距离。省略时引擎按 choices 里的 goto 推断邻接。",
+      "properties": {
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/NodeRef" },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "fake_edges": {
+          "type": "array",
+          "description": "神庙伪造的连线。只在 human_view 的小地图里出现，不参与距离计算；被识破后洇开消失。",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["from", "to", "requires"],
+            "properties": {
+              "from": { "$ref": "#/$defs/NodeRef" },
+              "to": { "type": "string", "description": "伪造目的地的展示名，不必是真实节点。" },
+              "requires": { "$ref": "#/$defs/ConditionList", "description": "何时出现，如 legacy.chosen_eye == gold。" },
+              "dispel_when": { "$ref": "#/$defs/ConditionList", "description": "何时视为识破并消失。" }
+            }
+          }
+        }
+      }
+    },
+    "rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "跨节点的通用规则。",
+      "properties": {
+        "max_rounds": { "type": "integer", "minimum": 1, "description": "本幕回合上限。到达后走 on_round_settled 里 round.index >= max_rounds 的触发器。" },
+        "message_max_length": { "type": "integer", "minimum": 1, "default": 60, "description": "玩家每回合留话的最大字数。" },
+        "shared_phrase": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "首个被双方采用的共同方位表达的识别规则。命中后写入 legacy.shared_phrase，只写一次。",
+          "properties": {
+            "min_length": { "type": "integer", "minimum": 2, "default": 3 },
+            "vocabulary": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "候选方位词或短语，如「六只空碗的墙」「东门」「向北」。为空则用最长公共子串。"
+            }
+          }
+        },
+        "echo_defaults": { "$ref": "#/$defs/EchoRule" }
+      }
+    },
+    "nodes": {
+      "type": "object",
+      "description": "以节点 id 为键的节点表。",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/Identifier" },
+      "additionalProperties": { "$ref": "#/$defs/Node" }
+    }
+  },
+
+  "$defs": {
+    "Identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "NodeRef": {
+      "$ref": "#/$defs/Identifier",
+      "description": "引用 nodes 表里的一个键。"
+    },
+    "Paragraphs": {
+      "type": "array",
+      "description": "正文段落。设计稿要求一次 60–140 字、最多三小段；这里只硬约束段数，字数由 lint 提示。",
+      "minItems": 0,
+      "maxItems": 3,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "Template": {
+      "type": "string",
+      "description": "可插值文本。用 {{path}} 引用状态，如 {{legacy.meeting_place_name}}、{{distance.label}}。"
+    },
+
+    "StatePath": {
+      "type": "string",
+      "description": "指向存档（state.schema.json）里某个字段的点路径。允许的根：legacy / flags / counters / distance / round / position / naming。",
+      "pattern": "^(legacy|flags|counters|distance|round|position|naming)(\\.[a-zA-Z0-9_]+)+$"
+    },
+    "Condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "op"],
+      "properties": {
+        "path": { "$ref": "#/$defs/StatePath" },
+        "op": {
+          "type": "string",
+          "enum": ["eq", "ne", "gt", "gte", "lt", "lte", "in", "not_in", "truthy", "falsy", "is_null"]
+        },
+        "value": {
+          "description": "比较值。truthy / falsy / is_null 不需要。"
+        }
+      }
+    },
+    "ConditionList": {
+      "type": "array",
+      "description": "全部满足才算成立（AND）。要 OR 就拆成多个选择/触发器。",
+      "items": { "$ref": "#/$defs/Condition" }
+    },
+
+    "Effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "path"],
+      "properties": {
+        "op": {
+          "type": "string",
+          "enum": ["set", "inc", "dec", "set_if_null", "push_unique"],
+          "description": "set 覆盖；inc/dec 数值加减；set_if_null 只在为空时写（用于「首次」类字段）；push_unique 往数组追加不重复项。"
+        },
+        "path": { "$ref": "#/$defs/StatePath" },
+        "value": { "description": "写入的值。inc/dec 省略时为 1。" }
+      }
+    },
+    "EffectList": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Effect" }
+    },
+
+    "Goto": {
+      "description": "目标节点。可以是单个节点 id，也可以是按条件挑选的列表（第一个满足的生效；都不满足则留在原节点）。",
+      "oneOf": [
+        { "$ref": "#/$defs/NodeRef" },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["node"],
+            "properties": {
+              "when": { "$ref": "#/$defs/ConditionList" },
+              "node": { "$ref": "#/$defs/NodeRef" }
+            }
+          }
+        }
+      ]
+    },
+
+    "ActionKind": {
+      "type": "string",
+      "enum": ["explore", "move", "wait", "speak", "approach", "hold", "retreat", "verify", "confirm"],
+      "description": "动作类别。wait 是正式动作（计入 wait_as_action_count）；verify 表示主动求证（计入 verification_count）；approach/hold/retreat 用于相遇节点，由 on_round_settled 触发器读取。"
+    },
+    "Choice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "kind"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Identifier" },
+        "label": { "type": "string", "description": "动词开头的按钮文字，如「取下金瞳」「停下，听一个回合」。" },
+        "kind": { "$ref": "#/$defs/ActionKind" },
+        "requires": { "$ref": "#/$defs/ConditionList", "description": "前置条件。不满足时选项不隐藏，而是锁定并显示 locked_reason。" },
+        "locked_reason": { "$ref": "#/$defs/Template", "description": "条件不足时给玩家看的原因，如「你尚未确认声音来自谁」。" },
+        "hidden_when": { "$ref": "#/$defs/ConditionList", "description": "极少数需要彻底不出现的情况（如已经做过一次的独占动作）。" },
+        "effects": { "$ref": "#/$defs/EffectList", "description": "提交即写入的状态变化（在回合结算前生效）。" },
+        "goto": { "$ref": "#/$defs/Goto" },
+        "distance_intent": {
+          "type": "string",
+          "enum": ["closer", "farther", "same", "by_graph"],
+          "default": "by_graph",
+          "description": "引擎如何理解这次动作对距离的意图。by_graph 表示按 goto 后的节点位置算；其余用于没有真实位移的抽象动作。"
+        },
+        "false_vision": {
+          "type": "boolean",
+          "default": false,
+          "description": "这个选项本身就是一次视觉欺骗（如点击镜中东门、手指触到墙面）。选中即写 legacy.false_vision_encountered = true。"
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["verification", "echo_trusted", "wait_as_action", "shared_verification", "rewrite_agreement"] },
+          "description": "引擎据此累加遗产计数：verification → verification_count；echo_trusted → echo_trusted_count；wait_as_action → wait_as_action_count；shared_verification 表示这是一次「共同验证」（双方同回合都带此标签时额外记一次）。"
+        },
+        "feedback": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "选中后立刻给本人看的一句话（不经结算）。",
+          "properties": {
+            "text": { "$ref": "#/$defs/Template" }
+          }
+        }
+      }
+    },
+
+    "Interactable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "text"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Identifier" },
+        "name": { "type": "string", "description": "如「无焰灯台」「六只空碗」「墙上银镜」。" },
+        "text": { "$ref": "#/$defs/Paragraphs", "description": "查看时的描述。" },
+        "requires": { "$ref": "#/$defs/ConditionList", "description": "何时可见，如银瞳玩家才看得见镜框指痕。" },
+        "variants": {
+          "type": "array",
+          "description": "同一物件因状态不同而呈现的不同文字。第一个满足的生效，都不满足用 text。",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["when", "text"],
+            "properties": {
+              "when": { "$ref": "#/$defs/ConditionList" },
+              "text": { "$ref": "#/$defs/Paragraphs" },
+              "false_vision": { "type": "boolean", "default": false }
+            }
+          }
+        },
+        "effects": { "$ref": "#/$defs/EffectList", "description": "查看/拿起后的状态写入，如拿起温热的种子。" },
+        "companion_side_effect": {
+          "$ref": "#/$defs/Template",
+          "description": "查看后灵伴那边同时感到的事，如「远处也响起一声种子滚动」。这是唯一一条允许从 human_view 影响 companion 消息的通道，且只发成品文字。"
+        }
+      }
+    },
+
+    "HumanView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "choices"],
+      "description": "人类玩家在这个节点看到的一切。含画面、地图、可探索物、选项与留言框。灵伴那边的感知数据不得出现在这里。",
+      "properties": {
+        "title": { "type": "string" },
+        "text": { "$ref": "#/$defs/Paragraphs" },
+        "text_variants": {
+          "type": "array",
+          "description": "按状态替换正文（如金瞳与银瞳看到的台阶不同）。",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["when", "text"],
+            "properties": {
+              "when": { "$ref": "#/$defs/ConditionList" },
+              "text": { "$ref": "#/$defs/Paragraphs" }
+            }
+          }
+        },
+        "stage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "backdrop": { "type": "string", "description": "底图资源 key。" },
+            "effects": { "type": "array", "items": { "type": "string", "enum": ["fog", "pupil_glow", "dust", "rain_marks", "eyes_open_behind", "blackout"] } },
+            "light_radius": { "type": "string", "enum": ["wide", "narrow", "none"], "description": "金瞳 wide、银瞳 narrow；收束时 none。" }
+          }
+        },
+        "minimap": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "visible": { "type": "boolean", "default": true },
+            "reveal_nodes": { "type": "array", "items": { "$ref": "#/$defs/NodeRef" }, "description": "进入此节点即标为已到达的节点（通常就是自己）。" },
+            "hearsay_nodes": { "type": "array", "items": { "$ref": "#/$defs/NodeRef" }, "description": "听说但未验证，画虚线。" },
+            "tremor_hint": { "type": "boolean", "default": true, "description": "是否在地图边缘显示灵伴移动的震纹方向。" }
+          }
+        },
+        "interactables": { "type": "array", "items": { "$ref": "#/$defs/Interactable" } },
+        "choices": { "type": "array", "minItems": 1, "maxItems": 4, "items": { "$ref": "#/$defs/Choice" } },
+        "message_input": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": true },
+            "placeholder": { "type": "string", "default": "留给灵伴一句话……" }
+          }
+        },
+        "temple_line": { "$ref": "#/$defs/Template", "description": "神庙对人类说的话，如「你已经看见它。向前即可结束。」" }
+      }
+    },
+
+    "CompanionView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "choices"],
+      "description": "灵伴在这个节点感到的一切。没有画面、没有地图、没有可探索物；只有触感、距离等级与自己的动作。人类那边的画面数据不得出现在这里。",
+      "properties": {
+        "text": { "$ref": "#/$defs/Paragraphs", "description": "以感觉而非画面写成的描述，如「北侧与西侧触到冰冷石壁」。" },
+        "text_variants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["when", "text"],
+            "properties": {
+              "when": { "$ref": "#/$defs/ConditionList" },
+              "text": { "$ref": "#/$defs/Paragraphs" }
+            }
+          }
+        },
+        "senses": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "结构化感知。引擎在结算时填值，这里只声明本节点提供哪些通道与静态触感。",
+          "properties": {
+            "distance_level": { "type": "boolean", "default": true },
+            "distance_delta": { "type": "boolean", "default": true },
+            "adjacent_obstacles": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["north", "south", "east", "west"] },
+              "description": "本节点相邻的墙。"
+            },
+            "sounds": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/Template" },
+              "description": "可复核的听觉线索，如「六次均匀的落水声，第三次与第五次之间没有回响」。"
+            }
+          }
+        },
+        "choices": { "type": "array", "minItems": 1, "maxItems": 4, "items": { "$ref": "#/$defs/Choice" } },
+        "message_input": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": true },
+            "guidance": { "type": "string", "description": "给灵伴（模型或本地代理）的写话提示：给出自己的证据，不直接发布答案。" }
+          }
+        },
+        "temple_line": { "$ref": "#/$defs/Template", "description": "神庙对灵伴说的话，如「你听见一个与你声音相似的呼吸。它说自己就是旅人。」" },
+        "proxy_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "单人原型里本地代理如何替灵伴行动。真实双人模式忽略。",
+          "properties": {
+            "strategy": { "type": "string", "enum": ["approach", "hold", "mirror_human", "scripted"] },
+            "scripted_choice": { "$ref": "#/$defs/Identifier" },
+            "scripted_message": { "$ref": "#/$defs/Template" }
+          }
+        }
+      }
+    },
+
+    "Emit": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "触发器产出的成品消息。按角色分开，未列出的角色什么都收不到。",
+      "properties": {
+        "human": { "$ref": "#/$defs/Template" },
+        "companion": { "$ref": "#/$defs/Template" },
+        "human_speaker": { "type": "string", "enum": ["temple", "system", "narrator"], "default": "narrator" },
+        "companion_speaker": { "type": "string", "enum": ["temple", "system", "narrator"], "default": "narrator" }
+      }
+    },
+    "TriggerBase": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Identifier" },
+        "when": { "$ref": "#/$defs/ConditionList" },
+        "once": { "type": "boolean", "default": false, "description": "整局只触发一次；引擎记录在 state.fired_triggers。" },
+        "effects": { "$ref": "#/$defs/EffectList" },
+        "emit": { "$ref": "#/$defs/Emit" },
+        "goto": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "触发后强制移动某一方。",
+          "properties": {
+            "human": { "$ref": "#/$defs/Goto" },
+            "companion": { "$ref": "#/$defs/Goto" }
+          }
+        },
+        "distance_shift": { "type": "integer", "description": "抽象地把距离拉开或拉近若干节点（如影子碎裂后 +1）。正数拉远。" },
+        "end_act": { "type": "boolean", "default": false, "description": "本幕结束。" }
+      }
+    },
+    "EnterTrigger": {
+      "allOf": [{ "$ref": "#/$defs/TriggerBase" }],
+      "unevaluatedProperties": false,
+      "description": "场景进入触发器：某一方进入本节点时评估一次。"
+    },
+    "RoundSettledTrigger": {
+      "allOf": [
+        { "$ref": "#/$defs/TriggerBase" },
+        {
+          "properties": {
+            "requires_actions": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "对本回合双方动作类别的要求。用于「双方同时靠近才相遇」这类规则。",
+              "properties": {
+                "human": { "type": "array", "items": { "$ref": "#/$defs/ActionKind" } },
+                "companion": { "type": "array", "items": { "$ref": "#/$defs/ActionKind" } }
+              }
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false,
+      "description": "回合结算触发器：双方都已提交并结算后评估。"
+    },
+    "DistanceChangeTrigger": {
+      "allOf": [
+        { "$ref": "#/$defs/TriggerBase" },
+        {
+          "properties": {
+            "from": { "$ref": "#/$defs/Identifier", "description": "变化前的距离等级 id；省略表示任意。" },
+            "to": { "$ref": "#/$defs/Identifier", "description": "变化后的距离等级 id；省略表示任意。" },
+            "direction": { "type": "string", "enum": ["closer", "farther", "any"], "default": "any" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false,
+      "description": "距离变化触发器：只在距离等级发生变化时评估，早于回合结算触发器。"
+    },
+    "Triggers": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "三类触发器分开存放。评估顺序：on_distance_change → on_round_settled → （若发生 goto）新节点的 on_enter。",
+      "properties": {
+        "on_enter": { "type": "array", "items": { "$ref": "#/$defs/EnterTrigger" } },
+        "on_round_settled": { "type": "array", "items": { "$ref": "#/$defs/RoundSettledTrigger" } },
+        "on_distance_change": { "type": "array", "items": { "$ref": "#/$defs/DistanceChangeTrigger" } }
+      }
+    },
+
+    "EchoRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "回声规则。回声引用的是历史消息，但这里只写「怎么选」，不写「选哪条」；引擎在结算时从 state.transcript 里选出一条，生成成品消息下发。前端永远拿不到 source_message_id，也拿不到完整对话库。",
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "after_exchanges": { "type": "integer", "minimum": 0, "default": 3, "description": "双方各至少说过几句之后才开始出现。" },
+        "source_speaker": { "type": "string", "enum": ["companion", "human"], "default": "companion", "description": "复述谁的话。第一幕里石眼用灵伴的声音。" },
+        "target": { "type": "string", "enum": ["human", "companion"], "default": "human", "description": "回声发给谁。" },
+        "pick": { "type": "string", "enum": ["random_past", "oldest", "most_recent_stale"], "default": "random_past" },
+        "min_age_rounds": { "type": "integer", "minimum": 1, "default": 1, "description": "只选至少这么多回合以前的消息，保证回声永远来自过去。" },
+        "probability": { "type": "number", "minimum": 0, "maximum": 1, "default": 1 },
+        "max_per_node": { "type": "integer", "minimum": 0, "description": "在本节点最多出现几次。" },
+        "frame": { "$ref": "#/$defs/Template", "description": "包裹复述内容的叙述，用 {{echo.text}} 占位，如「最远处的一只石眼用它的声音说：「{{echo.text}}」」。省略则原样下发。" },
+        "presentation": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "speaker_label": { "type": "string", "enum": ["as_companion", "as_human", "as_temple"], "default": "as_companion", "description": "前端显示的说话人标签。as_companion 时样式与真灵伴几乎相同。" },
+            "arrives_with_state_delta": { "type": "boolean", "const": false, "description": "唯一公平线索：回声永远不与本回合状态变化同时抵达。固定为 false，不可改。" }
+          }
+        }
+      }
+    },
+
+    "NamingRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["writes_to", "confirmation"],
+      "description": "共同命名。双方各提交一个名字，再互相确认；确认通过的那个写入 writes_to。",
+      "properties": {
+        "prompt": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "human": { "$ref": "#/$defs/Template" },
+            "companion": { "$ref": "#/$defs/Template" }
+          }
+        },
+        "writes_to": { "$ref": "#/$defs/StatePath", "description": "如 legacy.meeting_place_name。" },
+        "max_length": { "type": "integer", "minimum": 1, "default": 12 },
+        "confirmation": {
+          "type": "string",
+          "enum": ["both_confirm", "either_confirm"],
+          "description": "both_confirm：双方都确认同一个名字才写入。"
+        },
+        "solo_proxy_allowed": { "type": "boolean", "default": true, "description": "单人原型里允许本地代理替灵伴确认。" },
+        "on_confirmed": { "$ref": "#/$defs/Emit", "description": "确认后给双方的成品文字。" }
+      }
+    },
+
+    "Node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "human_view", "companion_view"],
+      "description": "一个节点。human_view 与 companion_view 是两份独立的、结构不同的对象；引擎按角色只下发其中一份，另一份在响应里不存在。",
+      "properties": {
+        "id": { "$ref": "#/$defs/Identifier" },
+        "kind": {
+          "type": "string",
+          "enum": ["scene", "corridor", "meeting", "naming", "ending"],
+          "description": "scene 普通场景；corridor 核心回合区（震纹判断）；meeting 相遇判定；naming 共同命名；ending 收束。"
+        },
+        "scene_group": { "type": "string", "description": "所属场景标题，如「场景三：石眼回廊」。仅供编辑与日志。" },
+        "position": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "抽象坐标，用于距离计算与震纹方向。省略则只按 graph.edges 的步数算。",
+          "properties": {
+            "x": { "type": "integer" },
+            "y": { "type": "integer" }
+          }
+        },
+        "human_view": { "$ref": "#/$defs/HumanView" },
+        "companion_view": { "$ref": "#/$defs/CompanionView" },
+        "triggers": { "$ref": "#/$defs/Triggers" },
+        "echo": { "$ref": "#/$defs/EchoRule", "description": "覆盖 rules.echo_defaults。" },
+        "naming": { "$ref": "#/$defs/NamingRule", "description": "仅 kind = naming 时使用。" },
+        "notes": { "type": "string", "description": "作者备注，不下发。" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "naming" } } },
+          "then": { "required": ["naming"] }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,377 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jibuzhi.dengyuanst.com/schemas/state.schema.json",
+  "title": "七味 · 存档与回合状态（session state）",
+  "description": "一局游戏的完整服务端状态。分三层：public（双方都可见）、per-role（只给对应角色）、server_private（绝不下发）。前端从 API 拿到的是 $defs/HumanStateView 或 $defs/CompanionStateView，永远不是整个对象。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["session", "players", "position", "distance", "round", "legacy", "flags", "counters", "naming", "fired_triggers", "transcript", "echoes"],
+  "properties": {
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "act_id", "scenes_version", "mode", "status", "created_at", "updated_at"],
+      "properties": {
+        "id": { "type": "string", "description": "会话 id（uuid）。" },
+        "act_id": { "type": "string", "description": "对应 scenes.json 的 act.id。" },
+        "scenes_version": { "type": "string", "description": "加载的 scenes.json 版本/哈希。换文件后老存档可据此判断是否兼容。" },
+        "mode": { "type": "string", "enum": ["paired", "solo_proxy"], "description": "paired 真实双人；solo_proxy 单人原型，灵伴由本地代理驱动。" },
+        "status": { "type": "string", "enum": ["active", "act_complete", "abandoned"] },
+        "seed": { "type": "integer", "description": "随机种子，回声抽取与本地代理都用它，保证可复现。" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      }
+    },
+
+    "players": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["human", "companion"],
+      "properties": {
+        "human": { "$ref": "#/$defs/Player" },
+        "companion": { "$ref": "#/$defs/Player" }
+      }
+    },
+
+    "position": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["human", "companion"],
+      "description": "双方所在节点与走过的节点。position.companion 只在 server_private 层；人类视图里不出现。",
+      "properties": {
+        "human": { "$ref": "#/$defs/Position" },
+        "companion": { "$ref": "#/$defs/Position" }
+      }
+    },
+
+    "distance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "label", "delta"],
+      "description": "双方距离。步数（steps）只留在服务端；下发给任何一方的都只有等级与变化。",
+      "properties": {
+        "steps": { "type": "integer", "minimum": 0, "description": "server_private。真实图上步数。" },
+        "level": { "type": "string", "description": "scenes.json distance_levels 里的 id。" },
+        "label": { "type": "string", "description": "等级的展示词，如「远」。" },
+        "previous_level": { "type": ["string", "null"] },
+        "delta": { "type": "string", "enum": ["closer", "farther", "same", "unknown"], "description": "相对上一回合。第一回合为 unknown。" },
+        "tremor_direction": {
+          "type": ["string", "null"],
+          "enum": ["north", "south", "east", "west", "northeast", "northwest", "southeast", "southwest", "here", null],
+          "description": "人类小地图边缘震纹的粗略方向。只在人类视图里出现。"
+        }
+      }
+    },
+
+    "round": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index", "phase", "submissions"],
+      "properties": {
+        "index": { "type": "integer", "minimum": 0, "description": "当前回合序号，从 0 开始。" },
+        "phase": { "type": "string", "enum": ["collecting", "settling", "settled"], "description": "collecting 等待提交；settling 引擎结算中；settled 已出结果，等待进入下一回合。" },
+        "deadline_at": { "type": ["string", "null"], "format": "date-time", "description": "paired 模式下等待另一方的截止时间；到点由代理补交 hold。" },
+        "submissions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["human", "companion"],
+          "description": "本回合双方提交。另一方的提交在结算前对任何一方都不可见。",
+          "properties": {
+            "human": { "oneOf": [{ "$ref": "#/$defs/Submission" }, { "type": "null" }] },
+            "companion": { "oneOf": [{ "$ref": "#/$defs/Submission" }, { "type": "null" }] }
+          }
+        },
+        "last_result": { "oneOf": [{ "$ref": "#/$defs/RoundResult" }, { "type": "null" }] },
+        "exchanges": { "type": "integer", "minimum": 0, "description": "双方都留了话的回合数。回声规则 after_exchanges 读这个。" }
+      }
+    },
+
+    "legacy": {
+      "$ref": "#/$defs/Legacy"
+    },
+
+    "flags": {
+      "type": "object",
+      "description": "场景文件自由写入的布尔状态，如 lamp_inspected、seed_taken、east_door_seen。",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+      "additionalProperties": { "type": "boolean" }
+    },
+
+    "counters": {
+      "type": "object",
+      "description": "场景文件自由写入的计数，如 eyes_opened、mirror_clicks。",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+      "additionalProperties": { "type": "integer" }
+    },
+
+    "naming": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "proposals", "confirmed_by"],
+      "description": "共同命名的进度。",
+      "properties": {
+        "status": { "type": "string", "enum": ["not_started", "proposing", "awaiting_confirmation", "confirmed"] },
+        "proposals": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "human": { "type": ["string", "null"] },
+            "companion": { "type": ["string", "null"] }
+          }
+        },
+        "candidate": { "type": ["string", "null"], "description": "正在等待确认的名字。" },
+        "confirmed_by": { "type": "array", "items": { "type": "string", "enum": ["human", "companion", "proxy"] }, "uniqueItems": true },
+        "confirmed_name": { "type": ["string", "null"] }
+      }
+    },
+
+    "fired_triggers": {
+      "type": "array",
+      "description": "once=true 的触发器已触发记录。server_private。",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+
+    "minimap": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "人类小地图的记忆。只给人类。",
+      "properties": {
+        "visited": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "hearsay": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "fake_revealed": { "type": "array", "items": { "type": "string" }, "description": "已出现过的伪造路径展示名。" },
+        "fake_dispelled": { "type": "array", "items": { "type": "string" }, "description": "已识破、正在洇开消失的伪造路径。" }
+      }
+    },
+
+    "transcript": {
+      "type": "array",
+      "description": "server_private。完整对话库，含双方留话、神庙、系统、回声。前端永远拿不到整段，只拿到 RoundResult.messages 里按角色筛过的成品。",
+      "items": { "$ref": "#/$defs/Message" }
+    },
+
+    "echoes": {
+      "type": "array",
+      "description": "server_private。每一条已生成的回声与它引用的源消息。",
+      "items": { "$ref": "#/$defs/EchoInstance" }
+    }
+  },
+
+  "$defs": {
+    "Role": { "type": "string", "enum": ["human", "companion"] },
+
+    "Player": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "display_name"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "type": "string", "enum": ["human", "machine", "local_proxy"] },
+        "display_name": { "type": "string", "description": "第一幕里灵伴在人类界面上永远显示为「无名灵伴」，真名在命名后才可能出现。" },
+        "role_token_hash": { "type": "string", "description": "server_private。角色令牌哈希，API 用它判断该返回哪份视图。" }
+      }
+    },
+
+    "Position": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node", "visited"],
+      "properties": {
+        "node": { "type": "string", "description": "当前节点 id。" },
+        "visited": { "type": "array", "items": { "type": "string" }, "description": "按时间顺序走过的节点。" },
+        "entered_at_round": { "type": "integer", "minimum": 0 }
+      }
+    },
+
+    "Legacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["chosen_eye", "false_vision_encountered", "verification_count", "echo_trusted_count", "wait_as_action_count", "meeting_place_name", "shared_phrase"],
+      "description": "第一幕状态遗产。只改变后续叙事与回声素材，不给关系打分。后续幕可追加字段但不得删改这七个。",
+      "properties": {
+        "chosen_eye": { "type": ["string", "null"], "enum": ["gold", "silver", null], "description": "取下的石眼。选择前为 null。" },
+        "false_vision_encountered": { "type": "boolean", "description": "是否亲历一次视觉欺骗。" },
+        "verification_count": { "type": "integer", "minimum": 0, "description": "双方主动验证信息的次数。" },
+        "echo_trusted_count": { "type": "integer", "minimum": 0, "description": "玩家采纳回声信息的次数。" },
+        "wait_as_action_count": { "type": "integer", "minimum": 0, "description": "主动停留并观察的次数。" },
+        "meeting_place_name": { "type": ["string", "null"], "maxLength": 32, "description": "双方共同命名的相遇之地。" },
+        "shared_phrase": { "type": ["string", "null"], "maxLength": 64, "description": "首次被双方采用的共同方位表达。" }
+      }
+    },
+
+    "Submission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["choice_id", "submitted_at"],
+      "properties": {
+        "choice_id": { "type": "string", "description": "scenes.json 里该角色视图 choices 的 id。" },
+        "choice_kind": { "type": "string", "description": "引擎从 scenes.json 回填的动作类别，供触发器 requires_actions 读取。" },
+        "message": { "type": ["string", "null"], "description": "留给对方的一句话；允许为空。" },
+        "trusted_message_id": { "type": ["string", "null"], "description": "玩家标记「我信这句」的消息 id。若指向一条回声，echo_trusted_count +1。前端只知道 id，不知道它是不是回声。" },
+        "submitted_at": { "type": "string", "format": "date-time" },
+        "by_proxy": { "type": "boolean", "default": false, "description": "由本地代理或超时代理代交。" }
+      }
+    },
+
+    "Message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "round", "speaker", "to", "text", "kind"],
+      "properties": {
+        "id": { "type": "string" },
+        "round": { "type": "integer", "minimum": 0 },
+        "speaker": { "type": "string", "enum": ["human", "companion", "temple", "system", "narrator"] },
+        "to": { "type": "array", "items": { "$ref": "#/$defs/Role" }, "minItems": 1, "uniqueItems": true, "description": "谁能收到。" },
+        "kind": { "type": "string", "enum": ["chat", "temple_line", "narration", "echo", "naming", "system"] },
+        "text": { "type": "string" },
+        "display_speaker": { "type": "string", "description": "前端显示的说话人标签。回声在这里写成灵伴的名字。" },
+        "arrived_with_state_delta": { "type": "boolean", "description": "是否与本回合状态变化同时抵达。真灵伴 true，回声 false。这是前端唯一拿到的公平线索。" },
+        "created_at": { "type": "string", "format": "date-time" }
+      }
+    },
+
+    "EchoInstance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message_id", "source_message_id", "emitted_round", "source_round"],
+      "description": "server_private。",
+      "properties": {
+        "message_id": { "type": "string", "description": "生成的回声消息 id（transcript 里 kind=echo 那条）。" },
+        "source_message_id": { "type": "string", "description": "被复述的原消息 id。绝不下发。" },
+        "emitted_round": { "type": "integer" },
+        "source_round": { "type": "integer" },
+        "node": { "type": "string" },
+        "trusted": { "type": "boolean", "default": false, "description": "玩家是否曾标记信任这条回声。" }
+      }
+    },
+
+    "RoundResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["round", "distance_before", "distance_after", "messages", "fired"],
+      "description": "一次结算的产物。API 按角色过滤后下发：messages 只留 to 含该角色的；moved/actions 只留自己的。",
+      "properties": {
+        "round": { "type": "integer" },
+        "distance_before": { "type": "string" },
+        "distance_after": { "type": "string" },
+        "delta": { "type": "string", "enum": ["closer", "farther", "same"] },
+        "moved": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "human": { "type": ["string", "null"], "description": "移动到的节点 id；没动为 null。" },
+            "companion": { "type": ["string", "null"] }
+          }
+        },
+        "actions": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "双方动作类别。server_private；每方只拿到自己的那份。",
+          "properties": {
+            "human": { "type": "string" },
+            "companion": { "type": "string" }
+          }
+        },
+        "messages": { "type": "array", "items": { "$ref": "#/$defs/Message" } },
+        "fired": { "type": "array", "items": { "type": "string" }, "description": "本次结算触发的触发器 id。server_private。" },
+        "shared_verification": { "type": "boolean", "default": false, "description": "本回合是否被识别为一次共同验证。" },
+        "act_ended": { "type": "boolean", "default": false }
+      }
+    },
+
+    "HumanStateView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session", "round", "distance", "legacy", "minimap", "messages", "node"],
+      "description": "GET /sessions/:id/view?role=human 的响应体。没有 position.companion、没有 steps、没有 transcript、没有 echoes、没有 companion_view。",
+      "properties": {
+        "session": {
+          "type": "object",
+          "required": ["id", "act_id", "mode", "status"],
+          "properties": {
+            "id": { "type": "string" },
+            "act_id": { "type": "string" },
+            "mode": { "type": "string" },
+            "status": { "type": "string" }
+          }
+        },
+        "round": {
+          "type": "object",
+          "required": ["index", "phase", "my_submission"],
+          "properties": {
+            "index": { "type": "integer" },
+            "phase": { "type": "string" },
+            "my_submission": { "oneOf": [{ "$ref": "#/$defs/Submission" }, { "type": "null" }] },
+            "waiting_for_other": { "type": "boolean" }
+          }
+        },
+        "distance": {
+          "type": "object",
+          "required": ["level", "label", "delta", "tremor_direction"],
+          "properties": {
+            "level": { "type": "string" },
+            "label": { "type": "string" },
+            "delta": { "type": "string" },
+            "tremor_direction": { "type": ["string", "null"] }
+          }
+        },
+        "legacy": { "$ref": "#/$defs/Legacy" },
+        "minimap": { "$ref": "#/properties/minimap" },
+        "naming": { "$ref": "#/properties/naming" },
+        "messages": { "type": "array", "items": { "$ref": "#/$defs/Message" }, "description": "to 含 human 的成品消息，按回合升序；kind=echo 的条目已被改写成 display_speaker=灵伴名，且没有任何指向源消息的字段。" },
+        "node": {
+          "type": "object",
+          "description": "scenes.json 中当前节点的 human_view，已按状态选好 text_variants / interactables.variants，并给每个 choice 加上 locked 与 locked_reason。不含 companion_view。",
+          "required": ["id", "kind", "view"],
+          "properties": {
+            "id": { "type": "string" },
+            "kind": { "type": "string" },
+            "view": { "type": "object" }
+          }
+        }
+      }
+    },
+
+    "CompanionStateView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session", "round", "distance", "senses", "legacy", "messages", "node"],
+      "description": "GET /sessions/:id/view?role=companion 的响应体。没有 position.human、没有 minimap、没有 tremor_direction、没有 steps、没有 transcript、没有 human_view。",
+      "properties": {
+        "session": { "$ref": "#/$defs/HumanStateView/properties/session" },
+        "round": { "$ref": "#/$defs/HumanStateView/properties/round" },
+        "distance": {
+          "type": "object",
+          "required": ["level", "label", "delta"],
+          "properties": {
+            "level": { "type": "string" },
+            "label": { "type": "string" },
+            "delta": { "type": "string" }
+          }
+        },
+        "senses": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["adjacent_obstacles"],
+          "properties": {
+            "adjacent_obstacles": { "type": "array", "items": { "type": "string" } },
+            "sounds": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "legacy": { "$ref": "#/$defs/Legacy" },
+        "naming": { "$ref": "#/properties/naming" },
+        "messages": { "type": "array", "items": { "$ref": "#/$defs/Message" }, "description": "to 含 companion 的成品消息。" },
+        "node": {
+          "type": "object",
+          "description": "scenes.json 中当前节点的 companion_view，已按状态选好 text_variants。不含 human_view。",
+          "required": ["id", "kind", "view"],
+          "properties": {
+            "id": { "type": "string" },
+            "kind": { "type": "string" },
+            "view": { "type": "object" }
+          }
+        }
+      }
+    }
+  }
+}
